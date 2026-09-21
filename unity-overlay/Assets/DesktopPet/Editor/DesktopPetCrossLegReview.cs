@@ -33,11 +33,10 @@ namespace DesktopPetEditor
                 float seam = bones.Select((b,i)=>Quaternion.Angle(rest[i],b.localRotation)).Max();
                 clip.SampleAnimation(view.Pet, clip.length);
                 var crossKnee = bones.First(b=>b.name == "Left knee");
-                Require(Vector3.Angle(ankle.position-crossKnee.position,new Vector3(.31f,-.44f,.26f)) < .05f,
-                    "Original sideways shin was not restored");
-                var originalFoot = Quaternion.AngleAxis(17f-17f*Mathf.Sin(-.7f),Vector3.right)*new Vector3(.10f,-.025f,.14f);
-                Require(Vector3.Angle(toe.position-ankle.position,originalFoot) < .05f,
-                    "Original sideways foot was not restored");
+                Require(Vector3.Angle(ankle.position-crossKnee.position,new Vector3(0,-.445f,.29f)) < .05f,
+                    "Approved forward-facing shin changed");
+                Require(Vector3.Angle(toe.position-ankle.position,new Vector3(0,-.01f,.15f)) < .05f,
+                    "Approved slightly raised forward-facing foot changed");
                 var end = bones.Select(b=>b.localRotation).ToArray();
                 var planted = bones.First(b=>b.name == "Right ankle");
                 var plantedToe = bones.First(b=>b.name == "Right toe");
@@ -65,12 +64,14 @@ namespace DesktopPetEditor
                     }
                     if (t >= 2+clip.length)
                     {
+                        Require(Mathf.Abs((toe.position-ankle.position).normalized.x)<.001f,
+                            "Foot turned sideways during hold");
                         toeMotion = Mathf.Max(toeMotion, Quaternion.Angle(firstToe, toe.localRotation));
                         ankleMotion = Mathf.Max(ankleMotion, Quaternion.Angle(firstAnkle, ankle.localRotation));
                         footDrift = Mathf.Max(footDrift, Vector3.Distance(planted.position,plantedPosition),
                             Vector3.Distance(plantedToe.position,plantedToePosition));
                     }
-                    view.Render(folder + "/restored-side-" + frame.ToString("D4") + ".png");
+                    view.Render(folder + "/forward-originaltempo-" + frame.ToString("D4") + ".png");
                 }
                 Require(hipDrift < .0001f, "Hip anchor moved");
                 Require(lengthDrift < .0001f, "Bone lengths changed");
@@ -82,7 +83,7 @@ namespace DesktopPetEditor
                 report.AppendLine($"Pose PASS: hip drift={hipDrift:F6}, local position drift={lengthDrift:F6}, endpoint error={seam:F4}deg");
                 report.AppendLine($"Original 0.95s entry restored; supporting foot drift during hold={footDrift:F6}m");
                 report.AppendLine($"Independent local rotations: ankle range={ankleMotion:F2}deg, toe range={toeMotion:F2}deg");
-                report.AppendLine("Original sideways shin/foot direction PASS; no staged foot planting.");
+                report.AppendLine("Approved forward-facing knee/shin and slightly raised foot PASS; original 0.95s timing, no staged foot planting.");
                 CheckLegSurfaces(view, clip, sit, report);
                 CheckLegSurfaces(view, loop, sit, report);
                 VerifyAnimator(view, report);

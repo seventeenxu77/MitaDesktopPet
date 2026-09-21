@@ -223,28 +223,23 @@ namespace DesktopPetEditor
                 if (blend <= 0) return;
                 float crossing = Ease((progress-.22f)/.78f);
                 float lift = Mathf.Sin(Mathf.PI * Mathf.Clamp01(progress));
-                float phase = 0;
-                // Lower thigh yields slightly outward. The upper knee first clears
-                // the other thigh vertically, then moves across it along an arc.
+                // Original timing/clearance arc, with the approved forward-facing
+                // target pose. Timing must not imply restoring the sideways pose.
                 Aim("Right leg", "Right knee", Vector3.Slerp(points[Bone("Right knee")]-points[Bone("Right leg")],
-                    new Vector3(.14f, -.10f, .425f), blend));
+                    new Vector3(-.09f, -.10f, .423f), blend));
                 Aim("Right knee", "Right ankle", Vector3.Slerp(points[Bone("Right ankle")]-points[Bone("Right knee")],
-                    new Vector3(-.18f,-.46f,.035f), blend));
+                    new Vector3(-.085f,-.46f,.035f), blend));
                 Aim("Right ankle", "Right toe", Vector3.Slerp(points[Bone("Right toe")]-points[Bone("Right ankle")],
-                    new Vector3(-.015f,-.10f,.13f), blend));
+                    new Vector3(0,-.10f,.13f), blend));
                 var baseThigh = (points[Bone("Left knee")]-points[Bone("Left leg")]).normalized;
-                var crossedThigh = new Vector3(.30f, .19f, .325f).normalized;
+                var crossedThigh = new Vector3(.135f, .145f, .398f).normalized;
                 var thigh = Vector3.Slerp(baseThigh, crossedThigh, crossing) + Vector3.up * (.55f*lift);
                 Aim("Left leg", "Left knee", thigh);
-                var lower = new Vector3(.31f, -.44f, .26f + .025f*Mathf.Sin(phase*2.9f) + .38f*lift);
+                var lower = new Vector3(0, -.445f, .29f + .38f*lift);
                 Aim("Left knee", "Left ankle", Vector3.Slerp(points[Bone("Left ankle")]-points[Bone("Left knee")], lower, blend));
-                // Independent ankle dorsiflexion and toe articulation, with a lag
-                // and two localized toe lifts instead of rigid whole-leg kicking.
-                float wave = Mathf.Sin(phase * 3.05f - .7f);
-                float angle = -17f + 17f*wave;
-                var footDirection = Quaternion.AngleAxis(-angle, Vector3.right) * new Vector3(.10f,-.025f,.14f);
+                var footDirection = new Vector3(0,-.01f,.15f);
                 Aim("Left ankle", "Left toe", Vector3.Slerp(points[Bone("Left toe")]-points[Bone("Left ankle")], footDirection, blend));
-                float toeLift = 5f*Mathf.Sin((phase-.13f)*3.05f) + 13f*Pulse(phase,1.1f,.28f) + 10f*Pulse(phase,3.65f,.32f);
+                float toeLift = 4f;
                 var toe = Bone("Left toe");
                 var toeHinge = Vector3.Cross(Vector3.up, toe.position - Bone("Left ankle").position).normalized;
                 toe.rotation = Quaternion.AngleAxis(-toeLift*blend, toeHinge) * toe.rotation;
@@ -256,30 +251,18 @@ namespace DesktopPetEditor
             public void PoseLoop(float seconds)
             {
                 Pose(EnterDuration);
-                // Retain the original sideways fidget speed; make the repeated
-                // hold periodic so it never snaps back at the loop boundary.
+                // Gentle forefoot/toe flexion, without turning the knee or sole
+                // sideways. Start and end both match the approved raised foot.
                 float waveRate = 4f*Mathf.PI/LoopDuration;
-                Aim("Left knee", "Left ankle", new Vector3(.31f,-.44f,.26f+.025f*Mathf.Sin(seconds*waveRate)));
-                float angle = -17f+17f*Mathf.Sin(seconds*waveRate-.7f);
-                Aim("Left ankle", "Left toe", Quaternion.AngleAxis(-angle,Vector3.right)*new Vector3(.10f,-.025f,.14f));
+                float ankleLift = 4f*(1-Mathf.Cos(seconds*waveRate));
+                Aim("Left ankle", "Left toe", Quaternion.AngleAxis(-ankleLift,Vector3.right)*new Vector3(0,-.01f,.15f));
                 var toe=Bone("Left toe");
                 toe.localRotation=rotations[toe];
-                float toeLift=5f*Mathf.Sin(seconds*waveRate-.13f*3.05f)
-                    + 13f*(PeriodicPulse(seconds,1.1f,.28f)-PeriodicPulse(0,1.1f,.28f)+Pulse(0,1.1f,.28f))
-                    + 10f*(PeriodicPulse(seconds,3.65f,.32f)-PeriodicPulse(0,3.65f,.32f)+Pulse(0,3.65f,.32f));
+                float toeLift=4f + 2f*(1-Mathf.Cos(seconds*waveRate)) + 1.5f*(1-Mathf.Cos(seconds*waveRate*.5f));
                 var axis=Vector3.Cross(Vector3.up,toe.position-Bone("Left ankle").position).normalized;
                 toe.rotation=Quaternion.AngleAxis(-toeLift,axis)*toe.rotation;
             }
 
-            private static float Pulse(float t,float centre,float width)
-            { float d=(t-centre)/width; return Mathf.Exp(-d*d); }
-
-            private static float PeriodicPulse(float t,float centre,float width)
-            {
-                float sum=0;
-                for(int k=-2;k<=2;k++) sum+=Pulse(t,centre+k*LoopDuration,width);
-                return sum;
-            }
             private void MoveHand(string side, Vector3 offset)
             {
                 var arm=Bone(side+" arm"); var elbow=Bone(side+" elbow"); var wrist=Bone(side+" wrist");
