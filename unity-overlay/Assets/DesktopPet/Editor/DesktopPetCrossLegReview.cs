@@ -51,19 +51,30 @@ namespace DesktopPetEditor
                 float maxUp = 0, maxDown = 0, highest = float.MinValue;
                 clip.SampleAnimation(view.Pet, 0);
                 float previousY = planted.position.y, startY = previousY;
-                for (int f=1; f<=54; f++)
+                for (int f=1; f<=Mathf.RoundToInt(clip.length*60); f++)
                 {
                     float t = f/60f;
                     clip.SampleAnimation(view.Pet, t);
                     float velocity = (planted.position.y-previousY)*60;
-                    if(t<=.2f) maxUp = Mathf.Max(maxUp,velocity);
-                    if(t>=.2f && t<=.32f) maxDown = Mathf.Max(maxDown,-velocity);
+                    if(t<=DesktopPetCrossLegAuthoring.SupportLiftEnd) maxUp = Mathf.Max(maxUp,velocity);
+                    if(t>=DesktopPetCrossLegAuthoring.PlantStart && t<=DesktopPetCrossLegAuthoring.PlantEnd+.02f)
+                        maxDown = Mathf.Max(maxDown,-velocity);
                     highest = Mathf.Max(highest, planted.position.y);
                     previousY = planted.position.y;
-                    if(t>=.32f) footDrift = Mathf.Max(footDrift,Vector3.Distance(planted.position,plantedPosition));
+                    if(t>=DesktopPetCrossLegAuthoring.PlantEnd+.02f)
+                        footDrift = Mathf.Max(footDrift,Vector3.Distance(planted.position,plantedPosition));
                 }
                 Require(highest-startY > .03f, "Support foot did not lift");
                 Require(maxDown > maxUp*1.3f, "Plant should be faster than the preparatory lift");
+                Require(DesktopPetCrossLegAuthoring.CrossStart > DesktopPetCrossLegAuthoring.PlantEnd,
+                    "Crossing must wait until support foot has landed");
+                Require(DesktopPetCrossLegAuthoring.CrossEnd-DesktopPetCrossLegAuthoring.CrossStart >= 1.4f,
+                    "Crossing should be deliberate rather than a quick snap");
+                clip.SampleAnimation(view.Pet, .85f); var hoverStart = planted.position;
+                clip.SampleAnimation(view.Pet, 1.5f); var hoverEnd = planted.position;
+                Require(hoverStart.y > plantedPosition.y+.055f && hoverEnd.y > plantedPosition.y+.055f,
+                    "Repositioning should take place in the air");
+                Require(Mathf.Abs(hoverEnd.x-hoverStart.x)>.07f, "Missing slow airborne reposition");
                 // Full 60fps review: two seconds ordinary sitting, one entry,
                 // then two seamless four-second loops, with no automatic exit.
                 int frameCount = Mathf.RoundToInt((2+clip.length+2*loop.length)*60);
@@ -85,17 +96,18 @@ namespace DesktopPetEditor
                         footDrift = Mathf.Max(footDrift, Vector3.Distance(planted.position,plantedPosition),
                             Vector3.Distance(plantedToe.position,plantedToePosition));
                     }
-                    view.Render(folder + "/rhythm-" + frame.ToString("D4") + ".png");
+                    view.Render(folder + "/slow-rhythm-" + frame.ToString("D4") + ".png");
                 }
                 Require(hipDrift < .0001f, "Hip anchor moved");
                 Require(lengthDrift < .0001f, "Bone lengths changed");
                 Require(seam < .1f, "Entry or loop seam mismatch");
                 Require(footDrift < .0001f, "Planted support foot slides");
                 Require(toeMotion > 4 && ankleMotion > 7, "Missing ankle/toe animation");
-                Require(Mathf.Abs(clip.length-.9f)<.001f && Mathf.Abs(loop.length-4)<.001f, "Wrong clip duration");
+                Require(Mathf.Abs(clip.length-DesktopPetCrossLegAuthoring.EnterDuration)<.001f && Mathf.Abs(loop.length-4)<.001f, "Wrong clip duration");
                 Require(AnimationUtility.GetAnimationClipSettings(loop).loopTime, "Hold clip must loop");
                 report.AppendLine($"Pose PASS: hip drift={hipDrift:F6}, local position drift={lengthDrift:F6}, endpoint error={seam:F4}deg");
                 report.AppendLine($"Support PASS: lift={highest-startY:F4}m, peak up={maxUp:F3}m/s, peak down={maxDown:F3}m/s, planted drift={footDrift:F6}m");
+                report.AppendLine("Timing PASS: 0-.7s lift; .45-1.6s airborne reposition; 1.65-1.8s plant; 2-3.5s slow crossing; settle through 3.7s.");
                 report.AppendLine($"Independent local rotations: ankle range={ankleMotion:F2}deg, toe range={toeMotion:F2}deg");
                 report.AppendLine("Approved forward-facing shin and raised forefoot PASS.");
                 CheckLegSurfaces(view, clip, sit, report);
@@ -207,7 +219,8 @@ namespace DesktopPetEditor
                 if (ended > 0) Require(animator.GetCurrentAnimatorStateInfo(0).IsName("SitCrossLegLoop"), "Crossed pose exited without pickup");
             }
             Require(began >= 1.95f && began < 2.2f, "Cross leg must begin after about two seconds: " + began);
-            Require(ended - began > .8f && ended - began < 1.05f, "Wrong entry duration: " + (ended-began));
+            Require(Mathf.Abs(ended - began - DesktopPetCrossLegAuthoring.EnterDuration) < .12f,
+                "Wrong entry duration: " + (ended-began));
             Require(animator.GetCurrentAnimatorStateInfo(0).IsName("SitCrossLegLoop"), "Must keep crossed pose");
             Require(!machine.states.Any(s=>s.state.name == "SitRest"), "Obsolete automatic return state");
             report.AppendLine($"Animator PASS: starts {began:F3}s after SitLoop, entry={ended-began:F3}s; remains crossed through 60s without repeating entry.");

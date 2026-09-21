@@ -22,7 +22,7 @@ namespace DesktopPetEditor
                 var originalPoints = bones.ToDictionary(p => p.Key, p => p.Value.position);
                 var originalRotations = bones.ToDictionary(p => p.Key, p => p.Value.rotation);
                 var restingToeRotation = bones["Left toe"].localRotation;
-                rig.Pose(2f);
+                rig.Pose(DesktopPetCrossLegAuthoring.EnterDuration);
 
                 Aim(bones, originalPoints, originalRotations, "Right leg", "Right knee", new Vector3(-.09f,-.10f,.423f));
                 Aim(bones, originalPoints, originalRotations, "Right knee", "Right ankle", new Vector3(-.085f,-.46f,.035f));

@@ -15,7 +15,9 @@ namespace DesktopPetEditor
         public const string ClipPath = "Assets/DesktopPet/Animations/SitCrossLeg.anim";
         public const string LoopPath = "Assets/DesktopPet/Animations/SitCrossLegLoop.anim";
         public const string ReviewFolder = "Library/DesktopPetCrossLegReview";
-        public const float EnterDuration = .9f, LoopDuration = 4f;
+        public const float EnterDuration = 3.7f, LoopDuration = 4f;
+        public const float SupportLiftEnd = .7f, SupportMoveStart = .45f, SupportMoveEnd = 1.6f;
+        public const float PlantStart = 1.65f, PlantEnd = 1.8f, CrossStart = 2f, CrossEnd = 3.5f;
         public const float Duration = EnterDuration;
         private const string SitPath = "Assets/AnimationClip/Mita Sit Normal.anim";
 
@@ -167,12 +169,12 @@ namespace DesktopPetEditor
             var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(ClipPath);
             using (var view = new DesktopPetDragReview.ReviewScene())
             {
-                foreach (float t in new[] {0f, .1f, .2f, .25f, .3f, .4f, .5f, .6f, .7f, Duration})
+                foreach (float t in new[] {0f, .35f, .7f, 1.1f, 1.6f, 1.72f, 1.8f, 2f, 2.5f, 3f, 3.5f, Duration})
                 {
                     clip.SampleAnimation(view.Pet, t);
                     view.Render(ReviewFolder + "/front-" + t.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + ".png");
                 }
-                clip.SampleAnimation(view.Pet, 2);
+                clip.SampleAnimation(view.Pet, EnterDuration);
                 var pivot = new Vector3(0, .72f, -.85f);
                 view.Camera.transform.position = pivot + new Vector3(3, .3f, 4);
                 view.Camera.transform.LookAt(pivot);
@@ -219,10 +221,10 @@ namespace DesktopPetEditor
             {
                 foreach (var bone in Bones) { bone.localRotation = rotations[bone]; bone.localPosition = positions[bone]; }
                 if (seconds <= 0) return;
-                // Support foot: 0-.20 lift, .20-.30 quicker downward plant.
+                // Slow lift, a distinct airborne reposition, then a short plant.
                 // An ankle target + two-bone IK keeps the planted foot immobile.
-                float plant = Phase(seconds, 0, .30f);
-                float supportLift = .06f * (Phase(seconds, 0, .20f) - Phase(seconds, .20f, .30f));
+                float plant = Phase(seconds, SupportMoveStart, SupportMoveEnd);
+                float supportLift = .06f * (Phase(seconds, 0, SupportLiftEnd) - Phase(seconds, PlantStart, PlantEnd));
                 var supportHip = points[Bone("Right leg")];
                 float upperLength = Vector3.Distance(supportHip, points[Bone("Right knee")]);
                 float lowerLength = Vector3.Distance(points[Bone("Right knee")], points[Bone("Right ankle")]);
@@ -236,12 +238,12 @@ namespace DesktopPetEditor
 
                 // Crossing starts late, accelerates through the middle, and brakes
                 // into contact. sin^2(eased phase) has zero endpoint velocity.
-                float crossing = Phase(seconds, .27f, .72f);
+                float crossing = Phase(seconds, CrossStart, CrossEnd);
                 float arc = Mathf.Pow(Mathf.Sin(Mathf.PI * crossing), 2);
                 // A small preparatory clearance moves the free foot out of the
                 // support foot's planting path; the actual crossing still waits.
-                float clearance = Phase(seconds, .055f, .18f) * (1-crossing);
-                float settle = .014f * Mathf.Pow(Mathf.Sin(Mathf.PI * Phase(seconds, .72f, .9f)), 2);
+                float clearance = Phase(seconds, .3f, .7f) * (1-crossing);
+                float settle = .014f * Mathf.Pow(Mathf.Sin(Mathf.PI * Phase(seconds, CrossEnd, EnterDuration)), 2);
                 var baseThigh = (points[Bone("Left knee")]-points[Bone("Left leg")]).normalized;
                 var thigh = Vector3.Slerp(baseThigh, CrossThigh.normalized, crossing) + Vector3.up * (.28f*arc + settle)
                     + new Vector3(-.11f,.14f,.025f)*clearance;
