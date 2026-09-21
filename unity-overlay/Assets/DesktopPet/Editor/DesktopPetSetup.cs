@@ -263,6 +263,8 @@ namespace DesktopPetEditor
                 instance.AddComponent<PetMouseLookController>();
             if (instance.GetComponent<PetSleepyEyesController>() == null)
                 instance.AddComponent<PetSleepyEyesController>();
+            if (instance.GetComponent<PetClickReactionController>() == null)
+                instance.AddComponent<PetClickReactionController>();
         }
 
         private static void CreateScene(GameObject desktopPetPrefab, DesktopPetPersona persona)

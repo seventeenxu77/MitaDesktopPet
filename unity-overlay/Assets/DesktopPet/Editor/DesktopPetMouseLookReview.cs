@@ -93,7 +93,9 @@ namespace DesktopPetEditor
                 LookType.GetField("head", Private).SetValue(look, head);
                 LookType.GetField("neck", Private).SetValue(look, head.parent);
                 LookType.GetField("petCamera", Private).SetValue(look, view.Camera);
-                var states = new[] { "Idle", "DragLoop", "SitLoop", "DragLoop", "Idle" };
+                // Six simulated seconds include the two-second sit delay and
+                // the crossing/settling clip, so the hold loop is now expected.
+                var states = new[] { "Idle", "DragLoop", "SitCrossLegLoop", "DragLoop", "Idle" };
                 for (int stage = 0; stage < states.Length; stage++)
                 {
                     animator.SetBool("IsDragging", stage == 1 || stage == 3);

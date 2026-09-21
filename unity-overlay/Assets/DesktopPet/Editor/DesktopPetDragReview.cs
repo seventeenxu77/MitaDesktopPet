@@ -48,6 +48,7 @@ namespace DesktopPetEditor
                 else if (command == "preview-cross-forward") DesktopPetCrossLegPosePreview.Render();
                 else if (command == "inspect-sleepy-eyes") DesktopPetSleepyEyesReview.Inspect();
                 else if (command == "check-sleepy-eyes") DesktopPetSleepyEyesReview.Run();
+                else if (command == "check-click-reactions") DesktopPetClickReactionReview.Run();
                 else throw new ArgumentException("Unknown drag review command: " + command);
                 File.WriteAllText(ReviewFolder + "/status.txt", "OK " + command + " " + DateTime.Now.ToString("O"));
             }

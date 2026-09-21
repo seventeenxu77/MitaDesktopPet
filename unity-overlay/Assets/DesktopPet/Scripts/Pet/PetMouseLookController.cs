@@ -21,11 +21,13 @@ namespace DesktopPet
         private Quaternion _headAnimationLocal;
         private Quaternion _neckAnimationLocal;
         private bool _poseApplied;
+        private PetClickReactionController _clickReaction;
 
         private void Awake() { ResolveReferences(); }
 
         private void ResolveReferences()
         {
+            _clickReaction = GetComponent<PetClickReactionController>();
             if (desktopWindow == null) desktopWindow = FindObjectOfType<DesktopWindowController>();
             if (petCamera == null) petCamera = Camera.main;
             if (head == null) head = transform.Find("Armature/Hips/Spine/Chest/Neck2/Neck1/Head");
@@ -68,7 +70,9 @@ namespace DesktopPet
             var worldOffset = desiredHeadWorld * Quaternion.Inverse(animatedHeadWorld);
             if (neck != null)
                 neck.rotation = Quaternion.Slerp(Quaternion.identity, worldOffset, neckContribution) * neck.rotation;
-            head.rotation = desiredHeadWorld;
+            // Own both offsets in one layer, so restoring mouse look also removes
+            // the last click reaction without leaving a twist on an unkeyed bone.
+            head.rotation = desiredHeadWorld * Quaternion.Euler(_clickReaction != null ? _clickReaction.HeadOffset : Vector3.zero);
             _poseApplied = true;
         }
 
