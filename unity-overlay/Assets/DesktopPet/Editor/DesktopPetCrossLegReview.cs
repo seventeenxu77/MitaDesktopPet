@@ -15,6 +15,7 @@ namespace DesktopPetEditor
         {
             var report = new StringBuilder();
             var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(DesktopPetCrossLegAuthoring.ClipPath);
+            var loop = AssetDatabase.LoadAssetAtPath<AnimationClip>(DesktopPetCrossLegAuthoring.LoopPath);
             var sit = AssetDatabase.LoadAssetAtPath<AnimationClip>("Assets/AnimationClip/Mita Sit Normal.anim");
             var folder = DesktopPetCrossLegAuthoring.ReviewFolder;
             Directory.CreateDirectory(folder);
@@ -28,44 +29,87 @@ namespace DesktopPetEditor
                 var origin = hip.position;
                 var toe = bones.First(b => b.name == "Left toe");
                 var ankle = bones.First(b => b.name == "Left ankle");
-                clip.SampleAnimation(view.Pet, DesktopPetCrossLegAuthoring.EnterDuration);
+                clip.SampleAnimation(view.Pet, 0);
+                float seam = bones.Select((b,i)=>Quaternion.Angle(rest[i],b.localRotation)).Max();
+                clip.SampleAnimation(view.Pet, clip.length);
+                var crossKnee = bones.First(b=>b.name == "Left knee");
+                Require(Vector3.Angle(ankle.position-crossKnee.position,new Vector3(0,-.445f,.29f)) < .05f,
+                    "Approved forward-facing shin changed");
+                Require(Vector3.Angle(toe.position-ankle.position,new Vector3(0,-.01f,.15f)) < .05f,
+                    "Approved foot pitch changed");
+                var end = bones.Select(b=>b.localRotation).ToArray();
+                var planted = bones.First(b=>b.name == "Right ankle");
+                var plantedToe = bones.First(b=>b.name == "Right toe");
+                var plantedPosition = planted.position; var plantedToePosition = plantedToe.position;
+                loop.SampleAnimation(view.Pet, 0);
+                seam = Mathf.Max(seam, bones.Select((b,i)=>Quaternion.Angle(end[i],b.localRotation)).Max());
+                var loopStart = bones.Select(b=>b.localRotation).ToArray();
                 var firstToe = toe.localRotation; var firstAnkle = ankle.localRotation;
-                float hipDrift = 0, lengthDrift = 0, toeMotion = 0, ankleMotion = 0, seam = 0;
-                for (int frame = 0; frame <= 207; frame++)
+                float hipDrift = 0, lengthDrift = 0, toeMotion = 0, ankleMotion = 0, footDrift = 0;
+                loop.SampleAnimation(view.Pet, loop.length);
+                seam = Mathf.Max(seam, bones.Select((b,i)=>Quaternion.Angle(loopStart[i],b.localRotation)).Max());
+                float maxUp = 0, maxDown = 0, highest = float.MinValue;
+                clip.SampleAnimation(view.Pet, 0);
+                float previousY = planted.position.y, startY = previousY;
+                for (int f=1; f<=54; f++)
                 {
-                    float t = frame / 30f;
+                    float t = f/60f;
                     clip.SampleAnimation(view.Pet, t);
+                    float velocity = (planted.position.y-previousY)*60;
+                    if(t<=.2f) maxUp = Mathf.Max(maxUp,velocity);
+                    if(t>=.2f && t<=.32f) maxDown = Mathf.Max(maxDown,-velocity);
+                    highest = Mathf.Max(highest, planted.position.y);
+                    previousY = planted.position.y;
+                    if(t>=.32f) footDrift = Mathf.Max(footDrift,Vector3.Distance(planted.position,plantedPosition));
+                }
+                Require(highest-startY > .03f, "Support foot did not lift");
+                Require(maxDown > maxUp*1.3f, "Plant should be faster than the preparatory lift");
+                // Full 60fps review: two seconds ordinary sitting, one entry,
+                // then two seamless four-second loops, with no automatic exit.
+                int frameCount = Mathf.RoundToInt((2+clip.length+2*loop.length)*60);
+                for (int frame = 0; frame <= frameCount; frame++)
+                {
+                    float t=frame/60f;
+                    if(t<2) sit.SampleAnimation(view.Pet,0);
+                    else if(t<=2+clip.length) clip.SampleAnimation(view.Pet,t-2);
+                    else loop.SampleAnimation(view.Pet,(t-2-clip.length)%loop.length);
                     hipDrift = Mathf.Max(hipDrift, Vector3.Distance(origin, hip.position));
                     for (int b = 0; b < bones.Length; b++)
                     {
                         lengthDrift = Mathf.Max(lengthDrift, Vector3.Distance(lengths[b], bones[b].localPosition));
-                        if (frame == 0 || frame == 207) seam = Mathf.Max(seam, Quaternion.Angle(rest[b], bones[b].localRotation));
                     }
-                    if (t >= DesktopPetCrossLegAuthoring.EnterDuration && t <= DesktopPetCrossLegAuthoring.EnterDuration + 5)
+                    if (t >= 2+clip.length)
                     {
                         toeMotion = Mathf.Max(toeMotion, Quaternion.Angle(firstToe, toe.localRotation));
                         ankleMotion = Mathf.Max(ankleMotion, Quaternion.Angle(firstAnkle, ankle.localRotation));
+                        footDrift = Mathf.Max(footDrift, Vector3.Distance(planted.position,plantedPosition),
+                            Vector3.Distance(plantedToe.position,plantedToePosition));
                     }
-                    view.Render(folder + "/motion-" + frame.ToString("D3") + ".png");
+                    view.Render(folder + "/rhythm-" + frame.ToString("D4") + ".png");
                 }
                 Require(hipDrift < .0001f, "Hip anchor moved");
                 Require(lengthDrift < .0001f, "Bone lengths changed");
-                Require(seam < .1f, "Ordinary sit endpoint mismatch");
-                Require(toeMotion > 5 && ankleMotion > 15, "Missing ankle/toe animation");
-                Require(Mathf.Abs(clip.length - 6.9f) < .001f, "Wrong clip duration");
+                Require(seam < .1f, "Entry or loop seam mismatch");
+                Require(footDrift < .0001f, "Planted support foot slides");
+                Require(toeMotion > 4 && ankleMotion > 7, "Missing ankle/toe animation");
+                Require(Mathf.Abs(clip.length-.9f)<.001f && Mathf.Abs(loop.length-4)<.001f, "Wrong clip duration");
+                Require(AnimationUtility.GetAnimationClipSettings(loop).loopTime, "Hold clip must loop");
                 report.AppendLine($"Pose PASS: hip drift={hipDrift:F6}, local position drift={lengthDrift:F6}, endpoint error={seam:F4}deg");
+                report.AppendLine($"Support PASS: lift={highest-startY:F4}m, peak up={maxUp:F3}m/s, peak down={maxDown:F3}m/s, planted drift={footDrift:F6}m");
                 report.AppendLine($"Independent local rotations: ankle range={ankleMotion:F2}deg, toe range={toeMotion:F2}deg");
+                report.AppendLine("Approved forward-facing shin and raised forefoot PASS.");
                 CheckLegSurfaces(view, clip, sit, report);
+                CheckLegSurfaces(view, loop, sit, report);
                 VerifyAnimator(view, report);
                 // Detail view isolates ankle/toe motion for visual review.
                 view.Pet.GetComponent<Animator>().enabled = false;
-                var pivot = new Vector3(.25f, .25f, -.5f);
-                view.Camera.transform.position = pivot + new Vector3(2, .2f, 3);
+                var pivot = new Vector3(.03f, .39f, -.4f);
+                view.Camera.transform.position = pivot + Vector3.forward*5;
                 view.Camera.transform.LookAt(pivot);
                 view.Camera.orthographicSize = .32f;
                 for (int i = 0; i < 6; i++)
                 {
-                    clip.SampleAnimation(view.Pet, .95f + i*.7f);
+                    loop.SampleAnimation(view.Pet, i*.6f);
                     view.Render(folder + "/foot-" + i + ".png");
                 }
             }
@@ -108,7 +152,8 @@ namespace DesktopPetEditor
                 for(int i=0;i<ids.Length;i+=3)
                     if(side[ids[i]]!=0 && side[ids[i]]==side[ids[i+1]] && side[ids[i]]==side[ids[i+2]])
                         (side[ids[i]]==1?left:right).Add(i);
-                foreach(float t in Enumerable.Range(0, 208).Select(frame => frame / 30f))
+                int sampleCount = Mathf.RoundToInt(clip.length * (clip.isLooping ? 4 : 60));
+                foreach(float t in Enumerable.Range(0, sampleCount+1).Select(frame => clip.length*frame/sampleCount))
                 {
                     clip.SampleAnimation(view.Pet,t); skin.BakeMesh(mesh);
                     var vertices=mesh.vertices;
@@ -119,7 +164,7 @@ namespace DesktopPetEditor
                         if(x.bounds.Intersects(y.bounds) && (Hits(x.a,x.b,y)||Hits(x.b,x.c,y)||Hits(x.c,x.a,y)||
                             Hits(y.a,y.b,x)||Hits(y.b,y.c,x)||Hits(y.c,y.a,x)))
                         {intersections++;centre+=skin.transform.TransformPoint(x.bounds.center);}
-                    report.AppendLine($"Leg surface sample {t:F2}s: intersecting triangle pairs={intersections}, region={(intersections>0?centre/intersections:Vector3.zero).ToString("F3")}");
+                    report.AppendLine($"{clip.name} surface sample {t:F2}s: intersecting triangle pairs={intersections}, region={(intersections>0?centre/intersections:Vector3.zero).ToString("F3")}");
                 }
             }
             finally { UnityEngine.Object.DestroyImmediate(mesh); }
@@ -154,17 +199,19 @@ namespace DesktopPetEditor
             animator.SetBool("IsDragging", false); animator.SetBool("IsSitting", true);
             animator.Play("SitLoop", 0, 0); animator.Update(0);
             float began = -1, ended = -1;
-            for (int frame = 1; frame <= 1200; frame++)
+            for (int frame = 1; frame <= 3600; frame++)
             {
                 animator.Update(1f/60);
                 if (animator.GetCurrentAnimatorStateInfo(0).IsName("SitCrossLeg") && began < 0) began = frame/60f;
-                if (animator.GetCurrentAnimatorStateInfo(0).IsName("SitRest") && ended < 0) ended = frame/60f;
+                if (animator.GetCurrentAnimatorStateInfo(0).IsName("SitCrossLegLoop") && ended < 0) ended = frame/60f;
+                if (ended > 0) Require(animator.GetCurrentAnimatorStateInfo(0).IsName("SitCrossLegLoop"), "Crossed pose exited without pickup");
             }
             Require(began >= 1.95f && began < 2.2f, "Cross leg must begin after about two seconds: " + began);
-            Require(ended - began > 6.7f && ended - began < 7.2f, "Entry + five second hold + exit duration: " + (ended-began));
-            Require(animator.GetCurrentAnimatorStateInfo(0).IsName("SitRest"), "Must remain in normal sitting, not repeat");
-            report.AppendLine($"Animator PASS: starts {began:F3}s after SitLoop, returns after {ended-began:F3}s incl. 0.95s entry + 5s hold + 0.95s exit; stays normal through 20s.");
-            foreach (string state in new[] {"SitCrossLeg", "SitRest"})
+            Require(ended - began > .8f && ended - began < 1.05f, "Wrong entry duration: " + (ended-began));
+            Require(animator.GetCurrentAnimatorStateInfo(0).IsName("SitCrossLegLoop"), "Must keep crossed pose");
+            Require(!machine.states.Any(s=>s.state.name == "SitRest"), "Obsolete automatic return state");
+            report.AppendLine($"Animator PASS: starts {began:F3}s after SitLoop, entry={ended-began:F3}s; remains crossed through 60s without repeating entry.");
+            foreach (string state in new[] {"SitCrossLeg", "SitCrossLegLoop"})
             {
                 animator.SetBool("IsDragging", false); animator.SetBool("IsSitting", true);
                 animator.Play(state, 0, .4f); animator.Update(0);
