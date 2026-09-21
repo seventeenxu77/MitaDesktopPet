@@ -23,7 +23,8 @@ namespace DesktopPetEditor
                 type.GetField("seatAnchor", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(controller, hips);
                 type.GetField("petCamera", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(controller, view.Camera);
                 var petRect = new RectInt(-700, 140, 520, 700);
-                foreach (var clipPath in new[] {"Assets/DesktopPet/Animations/DragFlailLoop.anim", "Assets/AnimationClip/Mita Sit Normal.anim"})
+                foreach (var clipPath in new[] {"Assets/DesktopPet/Animations/DragFlailLoop.anim", "Assets/AnimationClip/Mita Sit Normal.anim",
+                    DesktopPetCrossLegAuthoring.ClipPath})
                 {
                     var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(clipPath);
                     foreach (float phase in new[] {0f, 0.25f, 0.5f, 0.75f})

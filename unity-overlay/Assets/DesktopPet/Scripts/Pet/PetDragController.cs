@@ -29,10 +29,15 @@ namespace DesktopPet
             _draggingParameterHash = Animator.StringToHash(draggingParameter);
         }
 
-        private void OnMouseDown()
+        private void TryStartDragging()
         {
-            if (DesktopChatController.Active != null && DesktopChatController.Active.IsPointerOverChat(Input.mousePosition)) return;
+            if (desktopWindow == null || !desktopWindow.TryGetCursorClientPosition(out var pointer)) return;
+            if (DesktopChatController.Active != null && DesktopChatController.Active.IsPointerOverChat(pointer)) return;
             if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()) return;
+            var camera = Camera.main;
+            if (camera == null || !camera.pixelRect.Contains(pointer)) return;
+            if (!Physics.Raycast(camera.ScreenPointToRay(pointer), out var hit, 1000f, ~0,
+                QueryTriggerInteraction.Collide) || hit.collider.GetComponentInParent<PetDragController>() != this) return;
             if (desktopWindow == null || !desktopWindow.BeginDrag())
             {
                 return;
@@ -44,13 +49,14 @@ namespace DesktopPet
 
         private void Update()
         {
+            if (!_ownsDrag && Input.GetMouseButtonDown(1)) TryStartDragging();
             if (!_ownsDrag)
             {
                 return;
             }
 
 #if UNITY_EDITOR
-            if (!Input.GetMouseButton(0))
+            if (!Input.GetMouseButton(1))
             {
                 StopDragging();
             }
@@ -60,11 +66,6 @@ namespace DesktopPet
                 StopDragging();
             }
 #endif
-        }
-
-        private void OnMouseUp()
-        {
-            StopDragging();
         }
 
         private void OnDisable()

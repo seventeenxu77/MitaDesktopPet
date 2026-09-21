@@ -50,7 +50,9 @@ namespace DesktopPetEditor
             }
 
             CreateOrRefreshDragAnimations(sourcePrefab);
+            DesktopPetCrossLegAuthoring.Generate();
             var controller = CreateAnimatorController();
+            DesktopPetCrossLegAuthoring.ConfigureStates(controller);
             var persona = CreateOrLoadPersona();
             var desktopPetPrefab = CreatePrefabVariant(sourcePrefab, controller);
             CreateScene(desktopPetPrefab, persona);

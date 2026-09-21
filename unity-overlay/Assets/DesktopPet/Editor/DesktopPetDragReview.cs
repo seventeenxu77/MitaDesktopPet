@@ -43,6 +43,8 @@ namespace DesktopPetEditor
                 else if (command == "check-look") DesktopPetMouseLookReview.Run();
                 else if (command == "check-chat") DesktopPetChatReview.Run();
                 else if (command == "preview-chat") DesktopPetChatPreview.Run();
+                else if (command == "inspect-cross") DesktopPetCrossLegAuthoring.Inspect();
+                else if (command == "bake-cross") DesktopPetCrossLegAuthoring.GenerateAndReview();
                 else throw new ArgumentException("Unknown drag review command: " + command);
                 File.WriteAllText(ReviewFolder + "/status.txt", "OK " + command + " " + DateTime.Now.ToString("O"));
             }
@@ -160,7 +162,9 @@ namespace DesktopPetEditor
             animator.SetBool("IsDragging", false);
             animator.SetBool("IsSitting", true);
             for (int i = 0; i < 360; i++) animator.Update(1f / 60);
-            if (!animator.GetCurrentAnimatorStateInfo(0).IsName("SitLoop")) throw new Exception("Animator did not enter SitLoop");
+            if (!animator.GetCurrentAnimatorStateInfo(0).IsName("SitLoop") &&
+                !animator.GetCurrentAnimatorStateInfo(0).IsName("SitCrossLeg") &&
+                !animator.GetCurrentAnimatorStateInfo(0).IsName("SitRest")) throw new Exception("Animator did not enter seated sequence");
             view.Render(ReviewFolder + "/animator-sit.png");
             animator.SetBool("IsDragging", true);
             for (int i = 0; i < 180; i++) animator.Update(1f / 60);

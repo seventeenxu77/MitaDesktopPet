@@ -68,7 +68,7 @@ namespace DesktopPet
                 return;
             }
 
-            if ((GetAsyncKeyState(VkLeftButton) & 0x8000) == 0)
+            if ((GetAsyncKeyState(VkRightButton) & 0x8000) == 0)
             {
                 EndDrag();
                 return;
@@ -320,7 +320,7 @@ namespace DesktopPet
 
         private const int GwlStyle = -16;
         private const int GwlExtendedStyle = -20;
-        private const int VkLeftButton = 0x01;
+        private const int VkRightButton = 0x02;
 
         private const long WsCaption = 0x00C00000L;
         private const long WsThickFrame = 0x00040000L;
