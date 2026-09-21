@@ -22,12 +22,14 @@ namespace DesktopPet
         private Quaternion _neckAnimationLocal;
         private bool _poseApplied;
         private PetClickReactionController _clickReaction;
+        private ProceduralDragPoseController _dragInertia;
 
         private void Awake() { ResolveReferences(); }
 
         private void ResolveReferences()
         {
             _clickReaction = GetComponent<PetClickReactionController>();
+            _dragInertia = GetComponent<ProceduralDragPoseController>();
             if (desktopWindow == null) desktopWindow = FindObjectOfType<DesktopWindowController>();
             if (petCamera == null) petCamera = Camera.main;
             if (head == null) head = transform.Find("Armature/Hips/Spine/Chest/Neck2/Neck1/Head");
@@ -63,6 +65,7 @@ namespace DesktopPet
                 targetAngles = GetLookAngles(petCamera, head.position, animatedHeadWorld, pointer,
                     gazeDepth * Mathf.Abs(transform.lossyScale.y), maximumYaw, maximumPitch);
             if (_clickReaction != null) targetAngles *= _clickReaction.MouseLookInfluence;
+            if (_dragInertia != null) targetAngles *= 1-.8f*_dragInertia.ActiveWeight;
 
             if (deltaTime > 0)
                 _angles = Vector2.SmoothDamp(_angles, targetAngles, ref _angleVelocity,

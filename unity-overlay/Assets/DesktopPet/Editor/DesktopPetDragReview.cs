@@ -49,6 +49,7 @@ namespace DesktopPetEditor
                 else if (command == "inspect-sleepy-eyes") DesktopPetSleepyEyesReview.Inspect();
                 else if (command == "check-sleepy-eyes") DesktopPetSleepyEyesReview.Run();
                 else if (command == "check-click-reactions") DesktopPetClickReactionReview.Run();
+                else if (command == "check-hanging") DesktopPetHangingReview.Run();
                 else throw new ArgumentException("Unknown drag review command: " + command);
                 File.WriteAllText(ReviewFolder + "/status.txt", "OK " + command + " " + DateTime.Now.ToString("O"));
             }
@@ -67,13 +68,13 @@ namespace DesktopPetEditor
             {
                 var loop = AssetDatabase.LoadAssetAtPath<AnimationClip>(DesktopPetDragAuthoring.Folder + "/DragFlailLoop.anim");
                 Validate(view, loop);
-                for (int i = 0; i < 60; i++)
+                for (int i = 0; i < Mathf.RoundToInt(loop.length*60); i++)
                 {
                     loop.SampleAnimation(view.Pet, i / 60f);
                     view.Render(ReviewFolder + "/loop-" + i.ToString("D3") + ".png");
                 }
                 var lift = AssetDatabase.LoadAssetAtPath<AnimationClip>(DesktopPetDragAuthoring.Folder + "/DragLiftStart.anim");
-                for (int i = 0; i <= 18; i++)
+                for (int i = 0; i <= Mathf.RoundToInt(lift.length*60); i++)
                 {
                     lift.SampleAnimation(view.Pet, i / 60f);
                     view.Render(ReviewFolder + "/lift-" + i.ToString("D3") + ".png");
@@ -85,7 +86,8 @@ namespace DesktopPetEditor
             try
             {
                 var oldOffsets = contents.GetComponent<DesktopPet.ProceduralDragPoseController>();
-                if (oldOffsets != null) oldOffsets.enabled = false;
+                if (oldOffsets == null) oldOffsets = contents.AddComponent<DesktopPet.ProceduralDragPoseController>();
+                oldOffsets.enabled = true;
                 PrefabUtility.SaveAsPrefabAsset(contents, prefabPath);
             }
             finally { PrefabUtility.UnloadPrefabContents(contents); }
@@ -118,7 +120,7 @@ namespace DesktopPetEditor
             float drift = 0, headBelowHip = float.MaxValue;
             var bounds = new Bounds();
             bool first = true;
-            for (int frame = 0; frame <= 60; frame++)
+            for (int frame = 0; frame <= Mathf.RoundToInt(loop.length*60); frame++)
             {
                 loop.SampleAnimation(view.Pet, frame / 60f);
                 drift = Mathf.Max(drift, Vector3.Distance(hipOrigin, hips.position));

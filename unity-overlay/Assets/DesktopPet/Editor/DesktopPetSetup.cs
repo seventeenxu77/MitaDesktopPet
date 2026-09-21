@@ -255,10 +255,10 @@ namespace DesktopPetEditor
                 instance.AddComponent<PetDragController>();
             }
 
-            // The reviewed clips now own every joint. Do not layer the old
-            // local-axis offsets over this pose (serialized values were 13/4).
+            // The clip owns limb articulation; only the hip-pivot pendulum is procedural.
             var procedural = instance.GetComponent<ProceduralDragPoseController>();
-            if (procedural != null) procedural.enabled = false;
+            if (procedural == null) procedural = instance.AddComponent<ProceduralDragPoseController>();
+            procedural.enabled = true;
             if (instance.GetComponent<PetMouseLookController>() == null)
                 instance.AddComponent<PetMouseLookController>();
             if (instance.GetComponent<PetSleepyEyesController>() == null)

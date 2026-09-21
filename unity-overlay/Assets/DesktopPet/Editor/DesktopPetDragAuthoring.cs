@@ -10,8 +10,9 @@ namespace DesktopPetEditor
     // then baked into local quaternion/position tracks for the existing rig.
     public static class DesktopPetDragAuthoring
     {
-        public const float Period = 1.0f;
-        public const float LiftDuration = 0.30f;
+        public const float Period = 7.2f;
+        public const float ArmPeriod = 3.6f, LegPeriod = 2.4f;
+        public const float LiftDuration = 0.55f;
         public const string Folder = "Assets/DesktopPet/Animations";
 
         public static void Generate(GameObject prefab)
@@ -69,12 +70,18 @@ namespace DesktopPetEditor
                     for (int j = 1; j < keys.Length; j++)
                         if (Mathf.Abs(keys[j].value - keys[0].value) > 0.000001f) { constant = false; break; }
                     if (constant) curve = new AnimationCurve(new Keyframe(0, keys[0].value), new Keyframe(duration, keys[0].value));
-                    // Dense linear baking preserves the authored pose, including
-                    // the exact duplicate end frame and periodic velocity.
+                    // Smooth interior curves and matching periodic endpoint slopes.
                     for (int j = 0; j < curve.length; j++)
                     {
-                        AnimationUtility.SetKeyLeftTangentMode(curve, j, AnimationUtility.TangentMode.Linear);
-                        AnimationUtility.SetKeyRightTangentMode(curve, j, AnimationUtility.TangentMode.Linear);
+                        AnimationUtility.SetKeyLeftTangentMode(curve, j, AnimationUtility.TangentMode.ClampedAuto);
+                        AnimationUtility.SetKeyRightTangentMode(curve, j, AnimationUtility.TangentMode.ClampedAuto);
+                    }
+                    float slope=loop && curve.length>2 ? (curve.keys[1].value-curve.keys[curve.length-2].value)/(2*duration/frames) : 0;
+                    foreach(int endpoint in new[]{0,curve.length-1})
+                    {
+                        AnimationUtility.SetKeyLeftTangentMode(curve,endpoint,AnimationUtility.TangentMode.Free);
+                        AnimationUtility.SetKeyRightTangentMode(curve,endpoint,AnimationUtility.TangentMode.Free);
+                        var key=curve.keys[endpoint]; key.inTangent=key.outTangent=slope; curve.MoveKey(endpoint,key);
                     }
                     bindings.Add(EditorCurveBinding.FloatCurve(path, typeof(Transform), props[k]));
                     allCurves.Add(curve);
@@ -153,52 +160,77 @@ namespace DesktopPetEditor
             {
                 Reset();
                 float p = seconds / Period * Mathf.PI * 2;
-                float flutter = Mathf.Sin(p * 2);
+                float breath = Mathf.Sin(p);
                 var hips = Bone("Hips");
                 hips.position = worldPositions[hips] + Vector3.up * 0.14f;
-                AimBody("Hips", "Spine", new Vector3(0, -0.56f, 0.83f));
-                AimBody("Spine", "Chest", new Vector3(0, -0.63f + 0.025f * flutter, 0.77f));
-                AimBody("Chest", "Neck2", new Vector3(0, -0.70f + 0.025f * flutter, 0.71f));
+                AimBody("Hips", "Spine", new Vector3(0, -.90f, .44f));
+                AimBody("Spine", "Chest", new Vector3(0, -.94f + .008f*breath, .34f));
+                AimBody("Chest", "Neck2", new Vector3(0, -.96f + .008f*breath, .28f));
                 // Spread head compensation across both neck joints. The face
                 // remains readable instead of rolling with the pelvis.
-                WorldTilt("Neck2", yaw * Quaternion.Euler(77, 0, 0));
-                WorldTilt("Neck1", yaw * Quaternion.Euler(48, 0, 0));
-                WorldTilt("Head", Quaternion.Euler(22 + 2 * Mathf.Sin(2*p - 0.5f), 18, -4));
+                WorldTilt("Neck2", yaw * Quaternion.Euler(112, 0, 0));
+                WorldTilt("Neck1", yaw * Quaternion.Euler(82, 0, 0));
+                WorldTilt("Head", Quaternion.Euler(52 + 2 * Mathf.Sin(p - .5f), 22, -3));
 
-                PoseArm("Left", -1, p * 2);
-                PoseArm("Right", 1, p * 2 + 0.65f);
-                PoseLeg("Left", -1, p * 2);
-                PoseLeg("Right", 1, p * 2 + Mathf.PI);
+                PoseArm("Left", -1, seconds);
+                PoseArm("Right", 1, seconds-.22f);
+                float kick=seconds/LegPeriod*Mathf.PI*2;
+                PoseLeg("Left", -1, kick);
+                PoseLeg("Right", 1, kick + Mathf.PI);
             }
 
-            private void PoseArm(string side, float sign, float phase)
+            private static float Ease(float t) { t=Mathf.Clamp01(t); return t*t*t*(t*(t*6-15)+10); }
+            private void PoseArm(string side, float sign, float seconds)
             {
-                float wave = Mathf.Sin(phase);
-                Aim(side + " arm", side + " elbow", yaw * new Vector3(sign * 0.36f, -0.80f + wave * 0.18f, 0.36f));
-                Aim(side + " elbow", side + " wrist", yaw * new Vector3(sign * 0.20f, 0.38f + wave * 0.28f, 0.90f));
+                float phase=Mathf.Repeat(seconds/ArmPeriod,1);
+                float reach=phase<.15f ? 0 : phase<.5f ? Ease((phase-.15f)/.35f) : phase<.62f ? 1 : 1-Ease((phase-.62f)/.38f);
+                // Gather near the chest, open the arms, reach, curl the fingers as
+                // if trying to catch something, then recover slowly. Not a leg kick.
+                var chest=Bone("Chest");
+                var chestFront=chest.rotation*Quaternion.Inverse(world[chest])*Vector3.forward;
+                var folded=chest.position+chestFront*.18f+yaw*new Vector3(-sign*.025f,sign*.03f,0);
+                var extended=Bone(side+" arm").position+yaw*new Vector3(sign*.08f,-.22f,.36f);
+                var target=Vector3.Lerp(folded,extended,reach)+yaw*Vector3.right*(sign*.22f*Mathf.Sin(Mathf.PI*reach));
+                SolveArm(side,target,yaw*new Vector3(sign,-.25f,-.1f));
                 string suffix = side == "Left" ? "_L" : "_R";
-                Aim(side + " wrist", "MiddleFinger1" + suffix, yaw * new Vector3(sign * 0.08f, 0.04f, 1));
-                // Compact fists keep the silhouette close to the reference.
+                Aim(side + " wrist", "MiddleFinger1" + suffix, yaw*Vector3.Slerp(new Vector3(-sign*.4f,.1f,-.7f),new Vector3(sign*.08f,-.28f,1),reach));
+                float grasp=phase>=.5f && phase<.73f ? Mathf.Sin((phase-.5f)/.23f*Mathf.PI) : 0;
                 foreach (string finger in new[] {"IndexFinger", "MiddleFinger", "RingFinger", "LittleFinger"})
                     for (int joint = 1; joint <= 3; joint++)
                     {
                         var bone = Bone(finger + joint + suffix);
-                        bone.localRotation = local[bone] * Quaternion.Euler(-12, 0, -sign * (joint == 1 ? 46 : 62));
+                        float curl=Mathf.Lerp(joint==1?28:38,joint==1?8:12,reach)+grasp*(joint==1?18:25);
+                        bone.localRotation = local[bone] * Quaternion.Euler(-6,0,-sign*curl);
                     }
+            }
+
+            private void SolveArm(string side,Vector3 target,Vector3 pole)
+            {
+                var arm=Bone(side+" arm"); var elbow=Bone(side+" elbow"); var wrist=Bone(side+" wrist");
+                float upper=Vector3.Distance(worldPositions[arm],worldPositions[elbow]);
+                float lower=Vector3.Distance(worldPositions[elbow],worldPositions[wrist]);
+                var axis=(target-arm.position).normalized;
+                float distance=Mathf.Clamp(Vector3.Distance(target,arm.position),Mathf.Abs(upper-lower)+.005f,upper+lower-.008f);
+                float along=(upper*upper-lower*lower+distance*distance)/(2*distance);
+                var bend=(pole-axis*Vector3.Dot(pole,axis)).normalized;
+                var joint=arm.position+axis*along+bend*Mathf.Sqrt(Mathf.Max(0,upper*upper-along*along));
+                Aim(side+" arm",side+" elbow",joint-arm.position);
+                Aim(side+" elbow",side+" wrist",arm.position+axis*distance-elbow.position);
             }
 
             private void PoseLeg(string side, float sign, float phase)
             {
                 float wave = Mathf.Sin(phase);
-                Aim(side + " leg", side + " knee", yaw * new Vector3(sign * 0.38f, -0.75f + wave * 0.15f, -0.45f - wave * 0.12f));
-                Aim(side + " knee", side + " ankle", yaw * new Vector3(sign * 0.28f, 0.40f + wave * 0.24f, -0.85f));
-                Aim(side + " ankle", side + " toe", yaw * new Vector3(sign * 0.07f, -0.20f, -0.95f));
+                float follow=Mathf.Sin(phase-.65f);
+                Aim(side + " leg", side + " knee", yaw * new Vector3(sign*.22f,-.87f+.16f*wave,-.48f-.18f*wave));
+                Aim(side + " knee", side + " ankle", yaw * new Vector3(sign*.08f,-.78f+.55f*follow,-.42f-.30f*follow));
+                Aim(side + " ankle", side + " toe", yaw * new Vector3(sign*.035f,-.65f+.10f*Mathf.Sin(phase-1),-.40f));
             }
 
             public void Lift(float progress)
             {
                 Pose(0);
-                float weight = Mathf.SmoothStep(0, 1, progress);
+                float weight = Ease(progress);
                 foreach (var b in Bones)
                 {
                     b.localRotation = Quaternion.Slerp(local[b], b.localRotation, weight);

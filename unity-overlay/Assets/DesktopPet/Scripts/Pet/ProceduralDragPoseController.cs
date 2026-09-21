@@ -2,88 +2,92 @@ using UnityEngine;
 
 namespace DesktopPet
 {
-    /// <summary>
-    /// Adds a small, velocity-driven hanging motion after the Animator has
-    /// evaluated the authored pickup/flailing clips. The clip owns the pose;
-    /// this component only supplies subtle desktop-drag inertia.
-    /// </summary>
+    // Damped pendulum about the authored hip anchor, driven by screen-space
+    // changes in drag velocity. No arbitrary idle sine and no accumulated pose.
     [DefaultExecutionOrder(100)]
     [DisallowMultipleComponent]
     public sealed class ProceduralDragPoseController : MonoBehaviour
     {
         [SerializeField] private DesktopWindowController desktopWindow;
-        [SerializeField, Range(0f, 25f)] private float maximumBodyTilt = 5f;
-        [SerializeField, Range(0f, 15f)] private float idleSwingAngle = 1.25f;
-        [SerializeField, Range(0.1f, 15f)] private float idleSwingSpeed = 5.5f;
-        [SerializeField, Min(0.01f)] private float blendInSeconds = 0.16f;
-        [SerializeField, Min(0.01f)] private float blendOutSeconds = 0.18f;
-
+        [SerializeField, Range(5f,30f)] private float swingLimitDegrees=20f;
+        private Camera _camera;
         private Transform _hips;
-        private Transform _spine;
-        private Transform _chest;
-
+        private Quaternion _baseLocal;
+        private bool _applied;
         private float _weight;
-        private Vector2 _filteredVelocity;
-        private Vector2 _velocitySmoothing;
+        private Vector2 _angle, _angularVelocity, _previousVelocity;
 
-        private void Awake()
+        internal float ActiveWeight => isActiveAndEnabled ? _weight : 0;
+        internal Vector2 SwingAngles => _angle*_weight;
+
+        private void OnEnable()
         {
-            if (desktopWindow == null)
-            {
-                desktopWindow = FindObjectOfType<DesktopWindowController>();
-            }
-
-            _hips = transform.Find("Armature/Hips");
-            _spine = transform.Find("Armature/Hips/Spine");
-            _chest = transform.Find("Armature/Hips/Spine/Chest");
-
-            if (_hips == null)
-            {
-                Debug.LogWarning("Desktop Pet drag pose could not find Armature/Hips.", this);
-            }
+            RestorePose();
+            _hips=transform.Find("Armature/Hips");
+            _camera=Camera.main;
+            if(desktopWindow==null) desktopWindow=FindObjectOfType<DesktopWindowController>();
+            _weight=0; _angle=_angularVelocity=_previousVelocity=Vector2.zero;
         }
-
+        private void Update() { RestorePose(); }
         private void LateUpdate()
         {
-            var isDragging = desktopWindow != null && desktopWindow.IsDragging;
-            var blendSeconds = isDragging ? blendInSeconds : blendOutSeconds;
-            _weight = Mathf.MoveTowards(
-                _weight,
-                isDragging ? 1f : 0f,
-                Time.unscaledDeltaTime / Mathf.Max(0.01f, blendSeconds));
-
-            if (_weight <= 0f || _hips == null)
-            {
-                return;
-            }
-
-            var targetVelocity = isDragging
-                ? desktopWindow.DragVelocityPixelsPerSecond / 900f
-                : Vector2.zero;
-            targetVelocity = Vector2.ClampMagnitude(targetVelocity, 1f);
-            _filteredVelocity = Vector2.SmoothDamp(
-                _filteredVelocity,
-                targetVelocity,
-                ref _velocitySmoothing,
-                0.09f,
-                Mathf.Infinity,
-                Time.unscaledDeltaTime);
-
-            var phase = Time.unscaledTime * idleSwingSpeed;
-            var passiveSwing = Mathf.Sin(phase) * idleSwingAngle;
-            var bodyRoll = (-_filteredVelocity.x * maximumBodyTilt + passiveSwing) * _weight;
-            var forwardLag = (-_filteredVelocity.y * 7f) * _weight;
-            AddLocalRotation(_hips, new Vector3(forwardLag, 0f, bodyRoll));
-            AddLocalRotation(_spine, new Vector3(-forwardLag * 0.25f, 0f, -bodyRoll * 0.3f));
-            AddLocalRotation(_chest, new Vector3(-forwardLag * 0.2f, 0f, -bodyRoll * 0.2f));
+            bool dragging=desktopWindow!=null && desktopWindow.IsDragging;
+            var velocity=dragging ? desktopWindow.DragVelocityPixelsPerSecond*(700f/Mathf.Max(200,Screen.height)) : Vector2.zero;
+            StepInertia(velocity,dragging,Time.unscaledDeltaTime);
+            ApplyPose();
         }
-
-        private static void AddLocalRotation(Transform bone, Vector3 eulerOffset)
+        internal void StepInertia(Vector2 velocity,bool dragging,float deltaTime)
         {
-            if (bone != null)
+            float dt=Mathf.Clamp(deltaTime,0,.1f);
+            if(dt<=0) return;
+            velocity=dragging ? Vector2.ClampMagnitude(velocity,2400) : Vector2.zero;
+            _weight=Mathf.MoveTowards(_weight,dragging ? 1 : 0,dt/(dragging ? .25f : .22f));
+            if(_weight<=0 && !dragging)
+            { _angle=_angularVelocity=_previousVelocity=Vector2.zero; return; }
+            int count=Mathf.Max(1,Mathf.CeilToInt(dt*120));
+            float step=dt/count;
+            var change=dragging ? velocity-_previousVelocity : Vector2.zero;
+            var impulse=new Vector2(-change.y*.035f,-change.x*.095f)/count;
+            const float frequency=7.2f, damping=2*.42f*frequency;
+            for(int i=0;i<count;i++)
             {
-                bone.localRotation *= Quaternion.Euler(eulerOffset);
+                var current=Vector2.Lerp(_previousVelocity,velocity,(i+1f)/count);
+                var target=dragging ? new Vector2(-current.y*.0015f,-current.x*.003f) : Vector2.zero;
+                _angularVelocity+=impulse;
+                _angularVelocity+=((target-_angle)*(frequency*frequency)-damping*_angularVelocity)*step;
+                _angularVelocity=Vector2.ClampMagnitude(_angularVelocity,180);
+                _angle+=_angularVelocity*step;
+                Limit(ref _angle.x,ref _angularVelocity.x,9);
+                Limit(ref _angle.y,ref _angularVelocity.y,swingLimitDegrees);
             }
+            _previousVelocity=velocity;
+        }
+        private static void Limit(ref float angle,ref float speed,float limit)
+        {
+            if(Mathf.Abs(angle)<=limit) return;
+            angle=Mathf.Clamp(angle,-limit,limit);
+            if(Mathf.Sign(speed)==Mathf.Sign(angle)) speed=0;
+        }
+        internal void ApplyPose()
+        {
+            RestorePose();
+            if(_hips==null || _weight<=0) return;
+            _baseLocal=_hips.localRotation;
+            var cameraForward=_camera!=null ? _camera.transform.forward : Vector3.back;
+            var cameraRight=_camera!=null ? _camera.transform.right : Vector3.left;
+            _hips.rotation=Quaternion.AngleAxis(_angle.y*_weight,cameraForward)*
+                Quaternion.AngleAxis(_angle.x*_weight,cameraRight)*_hips.rotation;
+            _applied=true;
+        }
+        internal void RestorePose()
+        {
+            if(_applied && _hips!=null) _hips.localRotation=_baseLocal;
+            _applied=false;
+        }
+        private void OnDisable()
+        {
+            RestorePose();
+            _weight=0; _angle=_angularVelocity=_previousVelocity=Vector2.zero;
         }
     }
 }
