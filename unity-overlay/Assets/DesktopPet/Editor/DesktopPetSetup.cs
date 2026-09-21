@@ -261,6 +261,8 @@ namespace DesktopPetEditor
             if (procedural != null) procedural.enabled = false;
             if (instance.GetComponent<PetMouseLookController>() == null)
                 instance.AddComponent<PetMouseLookController>();
+            if (instance.GetComponent<PetSleepyEyesController>() == null)
+                instance.AddComponent<PetSleepyEyesController>();
         }
 
         private static void CreateScene(GameObject desktopPetPrefab, DesktopPetPersona persona)
