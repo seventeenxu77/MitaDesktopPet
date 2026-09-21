@@ -15,9 +15,7 @@ namespace DesktopPetEditor
         public const string ClipPath = "Assets/DesktopPet/Animations/SitCrossLeg.anim";
         public const string LoopPath = "Assets/DesktopPet/Animations/SitCrossLegLoop.anim";
         public const string ReviewFolder = "Library/DesktopPetCrossLegReview";
-        public const float EnterDuration = 3.7f, LoopDuration = 4f;
-        public const float SupportLiftEnd = .7f, SupportMoveStart = .45f, SupportMoveEnd = 1.6f;
-        public const float PlantStart = 1.65f, PlantEnd = 1.8f, CrossStart = 2f, CrossEnd = 3.5f;
+        public const float EnterDuration = .95f, LoopDuration = 248f/60f;
         public const float Duration = EnterDuration;
         private const string SitPath = "Assets/AnimationClip/Mita Sit Normal.anim";
 
@@ -107,9 +105,15 @@ namespace DesktopPetEditor
                             AnimationUtility.SetKeyLeftTangentMode(curve, j, AnimationUtility.TangentMode.ClampedAuto);
                             AnimationUtility.SetKeyRightTangentMode(curve, j, AnimationUtility.TangentMode.ClampedAuto);
                         }
-                        // Authored endpoints are at rest, including the loop seam.
-                        var first = curve.keys[0]; first.inTangent = first.outTangent = 0; curve.MoveKey(0, first);
-                        var lastKey = curve.keys[curve.length-1]; lastKey.inTangent = lastKey.outTangent = 0; curve.MoveKey(curve.length-1, lastKey);
+                        // Match velocity as well as position across the hold loop.
+                        float seamTangent = loop && curve.length>2 ?
+                            (curve.keys[1].value-curve.keys[curve.length-2].value)/(2*duration/frames) : 0;
+                        AnimationUtility.SetKeyLeftTangentMode(curve,0,AnimationUtility.TangentMode.Free);
+                        AnimationUtility.SetKeyRightTangentMode(curve,0,AnimationUtility.TangentMode.Free);
+                        AnimationUtility.SetKeyLeftTangentMode(curve,curve.length-1,AnimationUtility.TangentMode.Free);
+                        AnimationUtility.SetKeyRightTangentMode(curve,curve.length-1,AnimationUtility.TangentMode.Free);
+                        var first = curve.keys[0]; first.inTangent = first.outTangent = seamTangent; curve.MoveKey(0, first);
+                        var lastKey = curve.keys[curve.length-1]; lastKey.inTangent = lastKey.outTangent = seamTangent; curve.MoveKey(curve.length-1, lastKey);
                         bindings.Add(EditorCurveBinding.FloatCurve(AnimationUtility.CalculateTransformPath(pair.Key, view.Pet.transform),
                             typeof(Transform), properties[k]));
                         data.Add(curve);
@@ -169,7 +173,7 @@ namespace DesktopPetEditor
             var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(ClipPath);
             using (var view = new DesktopPetDragReview.ReviewScene())
             {
-                foreach (float t in new[] {0f, .35f, .7f, 1.1f, 1.6f, 1.72f, 1.8f, 2f, 2.5f, 3f, 3.5f, Duration})
+                foreach (float t in new[] {0f, .15f, .3f, .45f, .6f, .75f, .85f, Duration})
                 {
                     clip.SampleAnimation(view.Pet, t);
                     view.Render(ReviewFolder + "/front-" + t.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + ".png");
@@ -211,79 +215,70 @@ namespace DesktopPetEditor
                 bone.rotation = Quaternion.FromToRotation(rest.normalized, direction.normalized) * world[bone];
             }
             private static float Ease(float t) { t = Mathf.Clamp01(t); return t*t*t*(t*(t*6-15)+10); }
-            private static float Phase(float t, float a, float b) => Ease((t-a)/(b-a));
-            private static readonly Vector3 SupportThigh = new Vector3(-.09f,-.10f,.423f);
-            private static readonly Vector3 SupportShin = new Vector3(-.085f,-.46f,.035f);
-            private static readonly Vector3 CrossThigh = new Vector3(.135f,.145f,.398f);
-            private static readonly Vector3 CrossShin = new Vector3(0,-.445f,.29f);
-
             public void Pose(float seconds)
             {
                 foreach (var bone in Bones) { bone.localRotation = rotations[bone]; bone.localPosition = positions[bone]; }
-                if (seconds <= 0) return;
-                // Slow lift, a distinct airborne reposition, then a short plant.
-                // An ankle target + two-bone IK keeps the planted foot immobile.
-                float plant = Phase(seconds, SupportMoveStart, SupportMoveEnd);
-                float supportLift = .06f * (Phase(seconds, 0, SupportLiftEnd) - Phase(seconds, PlantStart, PlantEnd));
-                var supportHip = points[Bone("Right leg")];
-                float upperLength = Vector3.Distance(supportHip, points[Bone("Right knee")]);
-                float lowerLength = Vector3.Distance(points[Bone("Right knee")], points[Bone("Right ankle")]);
-                var finalKnee = supportHip + SupportThigh.normalized * upperLength;
-                var finalAnkle = finalKnee + SupportShin.normalized * lowerLength;
-                var target = Vector3.Lerp(points[Bone("Right ankle")], finalAnkle, plant) + Vector3.up * supportLift;
-                var pole = Vector3.Lerp(points[Bone("Right knee")], finalKnee, plant);
-                SolveChain("Right leg", "Right knee", "Right ankle", target, pole);
+                float progress = Mathf.Clamp01(seconds / EnterDuration);
+                float blend = Ease(progress);
+                if (blend <= 0) return;
+                float crossing = Ease((progress-.22f)/.78f);
+                float lift = Mathf.Sin(Mathf.PI * Mathf.Clamp01(progress));
+                float phase = 0;
+                // Lower thigh yields slightly outward. The upper knee first clears
+                // the other thigh vertically, then moves across it along an arc.
+                Aim("Right leg", "Right knee", Vector3.Slerp(points[Bone("Right knee")]-points[Bone("Right leg")],
+                    new Vector3(.14f, -.10f, .425f), blend));
+                Aim("Right knee", "Right ankle", Vector3.Slerp(points[Bone("Right ankle")]-points[Bone("Right knee")],
+                    new Vector3(-.18f,-.46f,.035f), blend));
                 Aim("Right ankle", "Right toe", Vector3.Slerp(points[Bone("Right toe")]-points[Bone("Right ankle")],
-                    new Vector3(0,-.10f,.13f), plant));
-
-                // Crossing starts late, accelerates through the middle, and brakes
-                // into contact. sin^2(eased phase) has zero endpoint velocity.
-                float crossing = Phase(seconds, CrossStart, CrossEnd);
-                float arc = Mathf.Pow(Mathf.Sin(Mathf.PI * crossing), 2);
-                // A small preparatory clearance moves the free foot out of the
-                // support foot's planting path; the actual crossing still waits.
-                float clearance = Phase(seconds, .3f, .7f) * (1-crossing);
-                float settle = .014f * Mathf.Pow(Mathf.Sin(Mathf.PI * Phase(seconds, CrossEnd, EnterDuration)), 2);
+                    new Vector3(-.015f,-.10f,.13f), blend));
                 var baseThigh = (points[Bone("Left knee")]-points[Bone("Left leg")]).normalized;
-                var thigh = Vector3.Slerp(baseThigh, CrossThigh.normalized, crossing) + Vector3.up * (.28f*arc + settle)
-                    + new Vector3(-.11f,.14f,.025f)*clearance;
+                var crossedThigh = new Vector3(.30f, .19f, .325f).normalized;
+                var thigh = Vector3.Slerp(baseThigh, crossedThigh, crossing) + Vector3.up * (.55f*lift);
                 Aim("Left leg", "Left knee", thigh);
-                var lower = Vector3.Slerp(points[Bone("Left ankle")]-points[Bone("Left knee")], CrossShin, crossing)
-                    + Vector3.forward * (.24f*arc + .17f*clearance);
-                Aim("Left knee", "Left ankle", lower);
-                Aim("Left ankle", "Left toe", Vector3.Slerp(points[Bone("Left toe")]-points[Bone("Left ankle")],
-                    new Vector3(0,-.01f,.15f), crossing));
+                var lower = new Vector3(.31f, -.44f, .26f + .025f*Mathf.Sin(phase*2.9f) + .38f*lift);
+                Aim("Left knee", "Left ankle", Vector3.Slerp(points[Bone("Left ankle")]-points[Bone("Left knee")], lower, blend));
+                // Independent ankle dorsiflexion and toe articulation, with a lag
+                // and two localized toe lifts instead of rigid whole-leg kicking.
+                float wave = Mathf.Sin(phase * 3.05f - .7f);
+                float angle = -17f + 17f*wave;
+                var footDirection = Quaternion.AngleAxis(-angle, Vector3.right) * new Vector3(.10f,-.025f,.14f);
+                Aim("Left ankle", "Left toe", Vector3.Slerp(points[Bone("Left toe")]-points[Bone("Left ankle")], footDirection, blend));
+                float toeLift = 5f*Mathf.Sin((phase-.13f)*3.05f) + 13f*Pulse(phase,1.1f,.28f) + 10f*Pulse(phase,3.65f,.32f);
                 var toe = Bone("Left toe");
-                toe.rotation = Quaternion.AngleAxis(-4f*crossing, Vector3.right) * toe.rotation;
-                MoveHand("Left", Vector3.up * (.07f*crossing + .03f*arc));
-                MoveHand("Right", Vector3.up * (.07f*crossing + .03f*arc));
+                var toeHinge = Vector3.Cross(Vector3.up, toe.position - Bone("Left ankle").position).normalized;
+                toe.rotation = Quaternion.AngleAxis(-toeLift*blend, toeHinge) * toe.rotation;
+                // Hands make room for the crossing thigh without moving the torso
+                // or the screen-space seating anchor.
+                MoveHand("Left", Vector3.up * (.07f*blend + .05f*lift));
+                MoveHand("Right", Vector3.up * (.07f*blend + .05f*lift));
             }
-
             public void PoseLoop(float seconds)
             {
                 Pose(EnterDuration);
-                float fast = 2*Mathf.PI*seconds/2f, slow = 2*Mathf.PI*seconds/LoopDuration;
-                float ankleLift = 4f * (1-Mathf.Cos(fast));
-                var direction = Quaternion.AngleAxis(-ankleLift, Vector3.right) * new Vector3(0,-.01f,.15f);
-                Aim("Left ankle", "Left toe", direction);
-                var toe = Bone("Left toe");
-                toe.localRotation = rotations[toe];
-                float toeLift = 4f + 2f*(1-Mathf.Cos(fast)) + 1.5f*(1-Mathf.Cos(slow));
-                toe.rotation = Quaternion.AngleAxis(-toeLift, Vector3.right) * toe.rotation;
+                // Retain the original sideways fidget speed; make the repeated
+                // hold periodic so it never snaps back at the loop boundary.
+                float waveRate = 4f*Mathf.PI/LoopDuration;
+                Aim("Left knee", "Left ankle", new Vector3(.31f,-.44f,.26f+.025f*Mathf.Sin(seconds*waveRate)));
+                float angle = -17f+17f*Mathf.Sin(seconds*waveRate-.7f);
+                Aim("Left ankle", "Left toe", Quaternion.AngleAxis(-angle,Vector3.right)*new Vector3(.10f,-.025f,.14f));
+                var toe=Bone("Left toe");
+                toe.localRotation=rotations[toe];
+                float toeLift=5f*Mathf.Sin(seconds*waveRate-.13f*3.05f)
+                    + 13f*(PeriodicPulse(seconds,1.1f,.28f)-PeriodicPulse(0,1.1f,.28f)+Pulse(0,1.1f,.28f))
+                    + 10f*(PeriodicPulse(seconds,3.65f,.32f)-PeriodicPulse(0,3.65f,.32f)+Pulse(0,3.65f,.32f));
+                var axis=Vector3.Cross(Vector3.up,toe.position-Bone("Left ankle").position).normalized;
+                toe.rotation=Quaternion.AngleAxis(-toeLift,axis)*toe.rotation;
             }
 
-            private void SolveChain(string upperName, string lowerName, string tipName, Vector3 target, Vector3 pole)
+            private static float Pulse(float t,float centre,float width)
+            { float d=(t-centre)/width; return Mathf.Exp(-d*d); }
+
+            private static float PeriodicPulse(float t,float centre,float width)
             {
-                var upper = Bone(upperName); var lower = Bone(lowerName); var tip = Bone(tipName);
-                float a = Vector3.Distance(points[upper], points[lower]), b = Vector3.Distance(points[lower], points[tip]);
-                var axis = (target-upper.position).normalized;
-                float distance = Mathf.Clamp(Vector3.Distance(upper.position,target), Mathf.Abs(a-b)+.0001f, a+b-.0001f);
-                float x = (a*a-b*b+distance*distance)/(2*distance);
-                var hint = pole-upper.position;
-                var bend = (hint-axis*Vector3.Dot(hint,axis)).normalized;
-                var elbow = upper.position + axis*x + bend*Mathf.Sqrt(Mathf.Max(0,a*a-x*x));
-                Aim(upperName,lowerName,elbow-upper.position);
-                Aim(lowerName,tipName,target-lower.position);
+                float sum=0;
+                for(int k=-2;k<=2;k++) sum+=Pulse(t,centre+k*LoopDuration,width);
+                return sum;
             }
             private void MoveHand(string side, Vector3 offset)
             {

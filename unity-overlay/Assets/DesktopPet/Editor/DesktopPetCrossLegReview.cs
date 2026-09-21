@@ -33,10 +33,11 @@ namespace DesktopPetEditor
                 float seam = bones.Select((b,i)=>Quaternion.Angle(rest[i],b.localRotation)).Max();
                 clip.SampleAnimation(view.Pet, clip.length);
                 var crossKnee = bones.First(b=>b.name == "Left knee");
-                Require(Vector3.Angle(ankle.position-crossKnee.position,new Vector3(0,-.445f,.29f)) < .05f,
-                    "Approved forward-facing shin changed");
-                Require(Vector3.Angle(toe.position-ankle.position,new Vector3(0,-.01f,.15f)) < .05f,
-                    "Approved foot pitch changed");
+                Require(Vector3.Angle(ankle.position-crossKnee.position,new Vector3(.31f,-.44f,.26f)) < .05f,
+                    "Original sideways shin was not restored");
+                var originalFoot = Quaternion.AngleAxis(17f-17f*Mathf.Sin(-.7f),Vector3.right)*new Vector3(.10f,-.025f,.14f);
+                Require(Vector3.Angle(toe.position-ankle.position,originalFoot) < .05f,
+                    "Original sideways foot was not restored");
                 var end = bones.Select(b=>b.localRotation).ToArray();
                 var planted = bones.First(b=>b.name == "Right ankle");
                 var plantedToe = bones.First(b=>b.name == "Right toe");
@@ -48,35 +49,8 @@ namespace DesktopPetEditor
                 float hipDrift = 0, lengthDrift = 0, toeMotion = 0, ankleMotion = 0, footDrift = 0;
                 loop.SampleAnimation(view.Pet, loop.length);
                 seam = Mathf.Max(seam, bones.Select((b,i)=>Quaternion.Angle(loopStart[i],b.localRotation)).Max());
-                float maxUp = 0, maxDown = 0, highest = float.MinValue;
-                clip.SampleAnimation(view.Pet, 0);
-                float previousY = planted.position.y, startY = previousY;
-                for (int f=1; f<=Mathf.RoundToInt(clip.length*60); f++)
-                {
-                    float t = f/60f;
-                    clip.SampleAnimation(view.Pet, t);
-                    float velocity = (planted.position.y-previousY)*60;
-                    if(t<=DesktopPetCrossLegAuthoring.SupportLiftEnd) maxUp = Mathf.Max(maxUp,velocity);
-                    if(t>=DesktopPetCrossLegAuthoring.PlantStart && t<=DesktopPetCrossLegAuthoring.PlantEnd+.02f)
-                        maxDown = Mathf.Max(maxDown,-velocity);
-                    highest = Mathf.Max(highest, planted.position.y);
-                    previousY = planted.position.y;
-                    if(t>=DesktopPetCrossLegAuthoring.PlantEnd+.02f)
-                        footDrift = Mathf.Max(footDrift,Vector3.Distance(planted.position,plantedPosition));
-                }
-                Require(highest-startY > .03f, "Support foot did not lift");
-                Require(maxDown > maxUp*1.3f, "Plant should be faster than the preparatory lift");
-                Require(DesktopPetCrossLegAuthoring.CrossStart > DesktopPetCrossLegAuthoring.PlantEnd,
-                    "Crossing must wait until support foot has landed");
-                Require(DesktopPetCrossLegAuthoring.CrossEnd-DesktopPetCrossLegAuthoring.CrossStart >= 1.4f,
-                    "Crossing should be deliberate rather than a quick snap");
-                clip.SampleAnimation(view.Pet, .85f); var hoverStart = planted.position;
-                clip.SampleAnimation(view.Pet, 1.5f); var hoverEnd = planted.position;
-                Require(hoverStart.y > plantedPosition.y+.055f && hoverEnd.y > plantedPosition.y+.055f,
-                    "Repositioning should take place in the air");
-                Require(Mathf.Abs(hoverEnd.x-hoverStart.x)>.07f, "Missing slow airborne reposition");
                 // Full 60fps review: two seconds ordinary sitting, one entry,
-                // then two seamless four-second loops, with no automatic exit.
+                // then two seamless hold loops, with no automatic exit.
                 int frameCount = Mathf.RoundToInt((2+clip.length+2*loop.length)*60);
                 for (int frame = 0; frame <= frameCount; frame++)
                 {
@@ -96,20 +70,19 @@ namespace DesktopPetEditor
                         footDrift = Mathf.Max(footDrift, Vector3.Distance(planted.position,plantedPosition),
                             Vector3.Distance(plantedToe.position,plantedToePosition));
                     }
-                    view.Render(folder + "/slow-rhythm-" + frame.ToString("D4") + ".png");
+                    view.Render(folder + "/restored-side-" + frame.ToString("D4") + ".png");
                 }
                 Require(hipDrift < .0001f, "Hip anchor moved");
                 Require(lengthDrift < .0001f, "Bone lengths changed");
                 Require(seam < .1f, "Entry or loop seam mismatch");
                 Require(footDrift < .0001f, "Planted support foot slides");
                 Require(toeMotion > 4 && ankleMotion > 7, "Missing ankle/toe animation");
-                Require(Mathf.Abs(clip.length-DesktopPetCrossLegAuthoring.EnterDuration)<.001f && Mathf.Abs(loop.length-4)<.001f, "Wrong clip duration");
+                Require(Mathf.Abs(clip.length-.95f)<.001f && Mathf.Abs(loop.length-DesktopPetCrossLegAuthoring.LoopDuration)<.001f, "Wrong clip duration");
                 Require(AnimationUtility.GetAnimationClipSettings(loop).loopTime, "Hold clip must loop");
                 report.AppendLine($"Pose PASS: hip drift={hipDrift:F6}, local position drift={lengthDrift:F6}, endpoint error={seam:F4}deg");
-                report.AppendLine($"Support PASS: lift={highest-startY:F4}m, peak up={maxUp:F3}m/s, peak down={maxDown:F3}m/s, planted drift={footDrift:F6}m");
-                report.AppendLine("Timing PASS: 0-.7s lift; .45-1.6s airborne reposition; 1.65-1.8s plant; 2-3.5s slow crossing; settle through 3.7s.");
+                report.AppendLine($"Original 0.95s entry restored; supporting foot drift during hold={footDrift:F6}m");
                 report.AppendLine($"Independent local rotations: ankle range={ankleMotion:F2}deg, toe range={toeMotion:F2}deg");
-                report.AppendLine("Approved forward-facing shin and raised forefoot PASS.");
+                report.AppendLine("Original sideways shin/foot direction PASS; no staged foot planting.");
                 CheckLegSurfaces(view, clip, sit, report);
                 CheckLegSurfaces(view, loop, sit, report);
                 VerifyAnimator(view, report);
