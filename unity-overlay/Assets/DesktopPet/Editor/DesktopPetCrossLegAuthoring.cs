@@ -15,7 +15,8 @@ namespace DesktopPetEditor
         public const string ClipPath = "Assets/DesktopPet/Animations/SitCrossLeg.anim";
         public const string LoopPath = "Assets/DesktopPet/Animations/SitCrossLegLoop.anim";
         public const string ReviewFolder = "Library/DesktopPetCrossLegReview";
-        public const float EnterDuration = .95f, LoopDuration = 248f/60f;
+        // Keep the approved crossing tempo; only the free leg keeps settling afterwards.
+        public const float CrossingDuration = .95f, EnterDuration = 2.3f, LoopDuration = 12f;
         public const float Duration = EnterDuration;
         private const string SitPath = "Assets/AnimationClip/Mita Sit Normal.anim";
 
@@ -215,14 +216,30 @@ namespace DesktopPetEditor
                 bone.rotation = Quaternion.FromToRotation(rest.normalized, direction.normalized) * world[bone];
             }
             private static float Ease(float t) { t = Mathf.Clamp01(t); return t*t*t*(t*(t*6-15)+10); }
+            private static float Pulse(float t, float start, float rise, float fall)
+            {
+                if (t <= start || t >= start+rise+fall) return 0;
+                return t < start+rise ? Ease((t-start)/rise) : 1-Ease((t-start-rise)/fall);
+            }
+            private static float Clearance(float progress)
+            {
+                // Preserve the original early arc, then match its value/velocity
+                // into a soft landing. sin(pi*t) alone hits the end at full speed.
+                const float landing = .7f;
+                if (progress <= landing) return Mathf.Sin(Mathf.PI*progress);
+                float u = (progress-landing)/(1-landing);
+                float value = Mathf.Sin(Mathf.PI*landing);
+                float slope = Mathf.PI*Mathf.Cos(Mathf.PI*landing)*(1-landing);
+                return (2*u*u*u-3*u*u+1)*value + (u*u*u-2*u*u+u)*slope;
+            }
             public void Pose(float seconds)
             {
                 foreach (var bone in Bones) { bone.localRotation = rotations[bone]; bone.localPosition = positions[bone]; }
-                float progress = Mathf.Clamp01(seconds / EnterDuration);
+                float progress = Mathf.Clamp01(seconds / CrossingDuration);
                 float blend = Ease(progress);
                 if (blend <= 0) return;
                 float crossing = Ease((progress-.22f)/.78f);
-                float lift = Mathf.Sin(Mathf.PI * Mathf.Clamp01(progress));
+                float lift = Clearance(progress);
                 // Original timing/clearance arc, with the approved forward-facing
                 // target pose. Timing must not imply restoring the sideways pose.
                 Aim("Right leg", "Right knee", Vector3.Slerp(points[Bone("Right knee")]-points[Bone("Right leg")],
@@ -247,20 +264,46 @@ namespace DesktopPetEditor
                 // or the screen-space seating anchor.
                 MoveHand("Left", Vector3.up * (.07f*blend + .05f*lift));
                 MoveHand("Right", Vector3.up * (.07f*blend + .05f*lift));
+                // The thigh is already seated while shin, ankle and toes finish
+                // successively smaller, delayed arcs. Every pulse has zero end velocity.
+                // Stay on the clear, forward side of the support thigh while
+                // settling; the ankle can overshoot without pushing the shin through it.
+                float shin = -2.5f*Pulse(seconds,.72f,.31f,.39f)-.65f*Pulse(seconds,1.18f,.25f,.37f);
+                float foot = 8f*Pulse(seconds,.79f,.36f,.52f)-2f*Pulse(seconds,1.43f,.24f,.40f);
+                float toes = 2f*Pulse(seconds,.88f,.38f,.5f)-.7f*Pulse(seconds,1.56f,.25f,.44f);
+                FollowThrough(shin,foot,toes);
             }
             public void PoseLoop(float seconds)
             {
                 Pose(EnterDuration);
-                // Gentle forefoot/toe flexion, without turning the knee or sole
-                // sideways. Start and end both match the approved raised foot.
-                float waveRate = 4f*Mathf.PI/LoopDuration;
-                float ankleLift = 4f*(1-Mathf.Cos(seconds*waveRate));
-                Aim("Left ankle", "Left toe", Quaternion.AngleAxis(-ankleLift,Vector3.right)*new Vector3(0,-.01f,.15f));
-                var toe=Bone("Left toe");
-                toe.localRotation=rotations[toe];
-                float toeLift=4f + 2f*(1-Mathf.Cos(seconds*waveRate)) + 1.5f*(1-Mathf.Cos(seconds*waveRate*.5f));
-                var axis=Vector3.Cross(Vector3.up,toe.position-Bone("Left ankle").position).normalized;
-                toe.rotation=Quaternion.AngleAxis(-toeLift,axis)*toe.rotation;
+                // Two unhurried gestures separated by actual rests. Sagittal-only
+                // swing keeps the knee and sole facing the screen. The ankle follows
+                // the calf 180 ms later, with an additional soft dorsiflexion.
+                float foot = .65f*CalfSwing(seconds-.18f)
+                    -15f*Pulse(seconds,1.25f,1.3f,1.4f)+3f*Pulse(seconds,3.6f,.8f,.95f)
+                    -17f*Pulse(seconds,7.2f,1.2f,1.45f)+3f*Pulse(seconds,9.2f,.9f,1f);
+                float toes = -5f*Pulse(seconds,1.48f,1.2f,1.4f)
+                    -6f*Pulse(seconds,7.45f,1.15f,1.4f);
+                FollowThrough(CalfSwing(seconds),foot,toes);
+            }
+            private static float CalfSwing(float t)
+            {
+                // Forward swing and unhurried return, never behind the approved
+                // resting shin (that region overlaps the supporting thigh).
+                return -7f*Pulse(t,1f,1.25f,1.25f)
+                    -5.5f*Pulse(t,7f,1.05f,1.4f);
+            }
+            private void FollowThrough(float shin, float foot, float toes)
+            {
+                var ankle = Bone("Left ankle");
+                var originalFoot = ankle.rotation;
+                var knee = Bone("Left knee");
+                knee.rotation = Quaternion.AngleAxis(shin,Vector3.right)*knee.rotation;
+                // Set the foot's world pitch independently so it lags the calf,
+                // instead of being rigidly carried through the exact same angle.
+                ankle.rotation = Quaternion.AngleAxis(foot,Vector3.right)*originalFoot;
+                var toe = Bone("Left toe");
+                toe.rotation = Quaternion.AngleAxis(toes,Vector3.right)*toe.rotation;
             }
 
             private void MoveHand(string side, Vector3 offset)

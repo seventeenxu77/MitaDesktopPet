@@ -45,7 +45,9 @@ namespace DesktopPetEditor
                 seam = Mathf.Max(seam, bones.Select((b,i)=>Quaternion.Angle(end[i],b.localRotation)).Max());
                 var loopStart = bones.Select(b=>b.localRotation).ToArray();
                 var firstToe = toe.localRotation; var firstAnkle = ankle.localRotation;
+                var firstShin = crossKnee.localRotation; var kneePosition = crossKnee.position;
                 float hipDrift = 0, lengthDrift = 0, toeMotion = 0, ankleMotion = 0, footDrift = 0;
+                float shinMotion = 0, kneeDrift = 0;
                 loop.SampleAnimation(view.Pet, loop.length);
                 seam = Mathf.Max(seam, bones.Select((b,i)=>Quaternion.Angle(loopStart[i],b.localRotation)).Max());
                 // Full 60fps review: two seconds ordinary sitting, one entry,
@@ -66,24 +68,33 @@ namespace DesktopPetEditor
                     {
                         Require(Mathf.Abs((toe.position-ankle.position).normalized.x)<.001f,
                             "Foot turned sideways during hold");
+                        Require(Vector3.SignedAngle(new Vector3(0,-.445f,.29f),
+                            ankle.position-crossKnee.position,Vector3.right)<.05f,
+                            "Calf swung behind its safe resting direction into the supporting thigh");
                         toeMotion = Mathf.Max(toeMotion, Quaternion.Angle(firstToe, toe.localRotation));
                         ankleMotion = Mathf.Max(ankleMotion, Quaternion.Angle(firstAnkle, ankle.localRotation));
+                        shinMotion = Mathf.Max(shinMotion, Quaternion.Angle(firstShin, crossKnee.localRotation));
+                        kneeDrift = Mathf.Max(kneeDrift, Vector3.Distance(kneePosition,crossKnee.position));
                         footDrift = Mathf.Max(footDrift, Vector3.Distance(planted.position,plantedPosition),
                             Vector3.Distance(plantedToe.position,plantedToePosition));
                     }
-                    view.Render(folder + "/forward-originaltempo-" + frame.ToString("D4") + ".png");
+                    view.Render(folder + "/follow-through-" + frame.ToString("D4") + ".png");
                 }
                 Require(hipDrift < .0001f, "Hip anchor moved");
                 Require(lengthDrift < .0001f, "Bone lengths changed");
                 Require(seam < .1f, "Entry or loop seam mismatch");
                 Require(footDrift < .0001f, "Planted support foot slides");
-                Require(toeMotion > 4 && ankleMotion > 7, "Missing ankle/toe animation");
-                Require(Mathf.Abs(clip.length-.95f)<.001f && Mathf.Abs(loop.length-DesktopPetCrossLegAuthoring.LoopDuration)<.001f, "Wrong clip duration");
+                Require(toeMotion > 4 && ankleMotion > 11 && shinMotion > 6, "Missing calf swing or stronger ankle/toe animation");
+                Require(kneeDrift < .0001f, "Crossed knee drifts during calf swing");
+                Require(Mathf.Abs(DesktopPetCrossLegAuthoring.CrossingDuration-.95f)<.001f &&
+                    Mathf.Abs(clip.length-DesktopPetCrossLegAuthoring.EnterDuration)<.001f &&
+                    Mathf.Abs(loop.length-DesktopPetCrossLegAuthoring.LoopDuration)<.001f, "Wrong clip duration");
                 Require(AnimationUtility.GetAnimationClipSettings(loop).loopTime, "Hold clip must loop");
                 report.AppendLine($"Pose PASS: hip drift={hipDrift:F6}, local position drift={lengthDrift:F6}, endpoint error={seam:F4}deg");
-                report.AppendLine($"Original 0.95s entry restored; supporting foot drift during hold={footDrift:F6}m");
-                report.AppendLine($"Independent local rotations: ankle range={ankleMotion:F2}deg, toe range={toeMotion:F2}deg");
-                report.AppendLine("Approved forward-facing knee/shin and slightly raised foot PASS; original 0.95s timing, no staged foot planting.");
+                report.AppendLine($"Original 0.95s crossing plus settling tail; supporting foot drift={footDrift:F6}m, crossed knee drift={kneeDrift:F6}m");
+                report.AppendLine($"Independent local rotations from rest: shin={shinMotion:F2}deg, ankle={ankleMotion:F2}deg, toe={toeMotion:F2}deg");
+                report.AppendLine("Approved forward-facing knee/shin and slightly raised foot PASS; no staged foot planting.");
+                VerifyFollowThrough(view,clip,loop,bones,report);
                 CheckLegSurfaces(view, clip, sit, report);
                 CheckLegSurfaces(view, loop, sit, report);
                 VerifyAnimator(view, report);
@@ -101,6 +112,59 @@ namespace DesktopPetEditor
             }
             File.WriteAllText(folder + "/validation.txt", report.ToString());
             DesktopPetSeatReview.Run();
+        }
+
+        private static Vector3[] Velocity(GameObject pet, AnimationClip clip, Transform[] bones, float start, float stop)
+        {
+            clip.SampleAnimation(pet,start);
+            var previous = bones.Select(b=>b.localRotation).ToArray();
+            clip.SampleAnimation(pet,stop);
+            return bones.Select((b,i)=> {
+                var delta=b.localRotation*Quaternion.Inverse(previous[i]);
+                return new Vector3(delta.x,delta.y,delta.z)*Mathf.Sign(delta.w)*(2*Mathf.Rad2Deg/(stop-start));
+            }).ToArray();
+        }
+        private static void VerifyFollowThrough(DesktopPetDragReview.ReviewScene view, AnimationClip clip,
+            AnimationClip loop, Transform[] bones, StringBuilder report)
+        {
+            const float dt=1f/240;
+            float landing=DesktopPetCrossLegAuthoring.CrossingDuration;
+            var before=Velocity(view.Pet,clip,bones,landing-dt,landing);
+            var after=Velocity(view.Pet,clip,bones,landing,landing+dt);
+            float landingChange=before.Select((v,i)=>Vector3.Distance(v,after[i])).Max();
+            Require(landingChange<12f,"Velocity discontinuity at crossing end: "+landingChange);
+            var settled=Velocity(view.Pet,clip,bones,clip.length-dt,clip.length);
+            var loopIn=Velocity(view.Pet,loop,bones,0,dt);
+            var loopOut=Velocity(view.Pet,loop,bones,loop.length-dt,loop.length);
+            float stopSpeed=settled.Max(v=>v.magnitude);
+            float seamSpeed=loopIn.Select((v,i)=>Vector3.Distance(v,loopOut[i])).Max();
+            Require(stopSpeed<.5f && seamSpeed<.5f,"Settling/loop endpoint still moving");
+            var knee=bones.First(b=>b.name=="Left knee");
+            var ankle=bones.First(b=>b.name=="Left ankle");
+            var toe=bones.First(b=>b.name=="Left toe");
+            clip.SampleAnimation(view.Pet,clip.length);
+            var finalFoot=toe.position-ankle.position;
+            var finalThighPoint=knee.position;
+            clip.SampleAnimation(view.Pet,1.15f);
+            float firstArc=Vector3.Angle(finalFoot,toe.position-ankle.position);
+            Require(Vector3.Distance(finalThighPoint,knee.position)<.0001f,"Thigh must land before foot settles");
+            clip.SampleAnimation(view.Pet,1.67f);
+            float rebound=Vector3.Angle(finalFoot,toe.position-ankle.position);
+            Require(firstArc>7 && rebound>1 && rebound<firstArc*.4f,"Missing decaying ankle follow-through");
+            loop.SampleAnimation(view.Pet,0);
+            var rest=bones.Select(b=>b.localRotation).ToArray();
+            foreach(float t in new[]{.5f,6f,6.5f,11.5f,12f})
+            {
+                loop.SampleAnimation(view.Pet,t);
+                Require(bones.Select((b,i)=>Quaternion.Angle(rest[i],b.localRotation)).Max()<.1f,"Idle needs quiet intervals: "+t);
+            }
+            // The calf starts first; the ankle's world direction is deliberately delayed.
+            loop.SampleAnimation(view.Pet,1.2f);
+            float calfStart=Vector3.Angle(ankle.position-knee.position,new Vector3(0,-.445f,.29f));
+            float footStart=Vector3.Angle(toe.position-ankle.position,finalFoot);
+            Require(calfStart>.1f && footStart<.05f,"Ankle must gently lag the calf");
+            report.AppendLine($"Follow-through PASS: first ankle arc={firstArc:F2}deg, rebound={rebound:F2}deg; landing velocity change={landingChange:F2}deg/s, final speed={stopSpeed:F3}deg/s, loop velocity seam={seamSpeed:F3}deg/s.");
+            report.AppendLine("Idle PASS: sagittal calf swing, delayed ankle response, quiet intervals, no perpetual pendulum.");
         }
 
         // Sample actual skinned surfaces, excluding the shared pelvis/top-quarter
