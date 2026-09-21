@@ -1,0 +1,93 @@
+diff --git a/install.ps1 b/install.ps1
+index 7017524..bdaa4bb 100644
+--- a/install.ps1
++++ b/install.ps1
+@@ -52,7 +52,14 @@ function Invoke-Conda {
+         [string[]]$Args
+     )
+ 
+-    $output = & conda install -y -q -c conda-forge @Args 2>&1
++    # PowerShell resolves command names case-insensitively. Calling `conda`
++    # from inside Invoke-Conda can recurse into this function, so resolve the
++    # executable explicitly.
++    $condaExe = $env:CONDA_EXE
++    if (-not $condaExe) {
++        throw "CONDA_EXE is not set. Activate the target Conda environment before running install.ps1."
++    }
++    $output = & $condaExe install -y -q -c conda-forge @Args 2>&1
+     $exitCode = $LASTEXITCODE
+ 
+     if ($exitCode -ne 0) {
+@@ -110,16 +117,17 @@ function Invoke-Download {
+     )
+ 
+     try {
+-        $params = @{
+-            Uri = $Uri
+-        }
+-
+         if ($OutFile) {
+-            $params["OutFile"] = $OutFile
++            # Invoke-WebRequest restarts large files after any connection drop.
++            # curl can resume the partial file and retry transient network errors.
++            & curl.exe -L --fail --retry 12 --retry-delay 3 --retry-all-errors `
++                --continue-at - --output $OutFile $Uri
++            if ($LASTEXITCODE -ne 0) {
++                throw "curl failed with exit code $LASTEXITCODE"
++            }
++        } else {
++            $null = Invoke-WebRequest -Uri $Uri -ErrorAction Stop
+         }
+-
+-        $null = Invoke-WebRequest @params -ErrorAction Stop
+-
+     } catch {
+         Write-Host "Failed to download:" -ForegroundColor Red
+         Write-Host "  $Uri"
+@@ -209,15 +217,15 @@ if ($DownloadUVR5) {
+ switch ($Device) {
+     "CU128" {
+         Write-Info "Installing PyTorch For CUDA 12.8..."
+-        Invoke-Pip torch torchcodec --index-url "https://download.pytorch.org/whl/cu128"
++        Invoke-Pip torch torchaudio --index-url "https://download.pytorch.org/whl/cu128"
+     }
+     "CU126" {
+         Write-Info "Installing PyTorch For CUDA 12.6..."
+-        Invoke-Pip torch torchcodec --index-url "https://download.pytorch.org/whl/cu126"
++        Invoke-Pip torch torchaudio --index-url "https://download.pytorch.org/whl/cu126"
+     }
+     "CPU" {
+         Write-Info "Installing PyTorch For CPU..."
+-        Invoke-Pip torch torchcodec --index-url "https://download.pytorch.org/whl/cpu"
++        Invoke-Pip torch torchaudio --index-url "https://download.pytorch.org/whl/cpu"
+     }
+ }
+ Write-Success "PyTorch Installed"
+diff --git a/GPT_SoVITS/TTS_infer_pack/TTS.py b/GPT_SoVITS/TTS_infer_pack/TTS.py
+index 5d4c186..60e65df 100644
+--- a/GPT_SoVITS/TTS_infer_pack/TTS.py
++++ b/GPT_SoVITS/TTS_infer_pack/TTS.py
+@@ -18,6 +18,7 @@ from typing import List, Tuple, Union
+ import ffmpeg
+ import librosa
+ import numpy as np
++import soundfile as sf
+ import torch
+ import torch.nn.functional as F
+ import yaml
+@@ -769,7 +770,13 @@ class TTS:
+             self.prompt_cache["refer_spec"][0] = spec_audio
+ 
+     def _get_ref_spec(self, ref_audio_path):
+-        raw_audio, raw_sr = torchaudio.load(ref_audio_path)
++        # torchaudio.load delegates decoding to TorchCodec in recent PyTorch
++        # releases. TorchCodec's Windows DLLs are fragile across FFmpeg builds;
++        # reference clips used by this service are WAV files, so libsndfile is a
++        # simpler and deterministic decoder here. Keep torchaudio for the
++        # tensor transforms used elsewhere in the inference pipeline.
++        raw_audio_np, raw_sr = sf.read(ref_audio_path, dtype="float32", always_2d=True)
++        raw_audio = torch.from_numpy(raw_audio_np.T.copy())
+         raw_audio = raw_audio.to(self.configs.device).float()
+         self.prompt_cache["raw_audio"] = raw_audio
+         self.prompt_cache["raw_sr"] = raw_sr
+

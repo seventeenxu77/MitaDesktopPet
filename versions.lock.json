@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "unity": "2021.3.45f2c1",
+  "codexCliTested": "0.154.0",
+  "gptSoVits": {
+    "repository": "https://github.com/RVC-Boss/GPT-SoVITS.git",
+    "revision": "48b1a0169a28582a8984402f82cf438d3bfa6aca",
+    "python": "3.10.21",
+    "torch": "2.11.0+cu128",
+    "torchaudio": "2.11.0+cu128",
+    "soundfile": "0.14.0",
+    "apiHost": "127.0.0.1",
+    "apiPort": 9880
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "unity": [
+    {
+      "path": "Assets/learn/MitaDreamer.prefab",
+      "sha256": "CE5921C462AEC729D338121F56B87E5F72E0EBB67612B232E43D935F89F748D4"
+    },
+    {
+      "path": "Assets/AnimationClip/Mita Sit Normal.anim",
+      "sha256": "D254F50B0B0109F04214ECF63EB8C284FD420FBD0BD027063E6F85D2A307E0B3"
+    },
+    {
+      "path": "Assets/AnimationClip/Mita Sit NormalStart.anim",
+      "sha256": "8229E297AE4528E9884FA14B4BB8856739A4471F1570EE37EFDE0354EB1C78EF"
+    },
+    {
+      "path": "Assets/AnimationClip/MitaDreamer.anim",
+      "sha256": "1D5E73974D071F4C72998D090CE4ED3BF97B72C99815B701363112FFD228AB07"
+    },
+    {
+      "path": "Assets/Plugins/UnityEngine.UI.dll",
+      "sha256": "6705FF959937974EE0A1960B3A542A880DE3D92AA4F5D827A3097A3E23D488A3"
+    }
+  ],
+  "gptSoVits": [
+    {
+      "path": "model/mitadreamer-e15.ckpt",
+      "sha256": "32C00F3C48FF6FB0F5EE370A55623B05A5625A48E89B86DF1463EEEB4A9B62A5"
+    },
+    {
+      "path": "model/mitadreamer_e8_s72.pth",
+      "sha256": "D1A25AFA97C2B75DE7B97FB10C4F974DB1EA8DAF2061F9E13CB9F6DB98BE96B8"
+    },
+    {
+      "path": "model/mitadreamer-reference-ja.wav",
+      "sha256": "0D61C2387F8FD970779B9C985EB413497EB79A9F061BEA24DB499A78B076BE99"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+# Unity generated state
+**/[Ll]ibrary/
+**/[Tt]emp/
+**/[Oo]bj/
+**/[Ll]ogs/
+**/[Uu]ser[Ss]ettings/
+**/[Mm]emoryCaptures/
+
+# Build products
+[Bb]uild/
+[Bb]uilds/
+*.exe
+*.pdb
+
+# Reproducible third-party/runtime downloads
+external/
+third_party/
+runtime/
+conda-pkgs/
+pip-cache/
+
+# Private or redistributability-sensitive assets
+private-assets/
+*.ckpt
+*.pth
+desktop-pet-voice-test.wav
+mitadreamer-reference-ja.wav
+
+# Credentials and machine-local configuration
+.env
+.env.*
+auth.json
+local.settings.json
+*.local.json
+
+# IDE and OS state
+.vs/
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini

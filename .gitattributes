@@ -1,0 +1,25 @@
+* text=auto
+*.cs text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.ps1 text eol=crlf
+*.shader text eol=lf
+*.anim text eol=lf
+*.controller text eol=lf
+*.prefab text eol=lf
+*.unity text eol=lf
+*.asset text eol=lf
+*.meta text eol=lf
+*.anim whitespace=-trailing-space
+*.controller whitespace=-trailing-space
+*.prefab whitespace=-trailing-space
+*.unity whitespace=-trailing-space
+*.asset whitespace=-trailing-space
+*.meta whitespace=-trailing-space
+*.patch whitespace=-trailing-space
+*.png binary
+*.dll binary
+*.wav binary
+*.mp4 binary
