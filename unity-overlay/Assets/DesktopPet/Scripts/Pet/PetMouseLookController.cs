@@ -62,6 +62,7 @@ namespace DesktopPet
             if (hasPointer)
                 targetAngles = GetLookAngles(petCamera, head.position, animatedHeadWorld, pointer,
                     gazeDepth * Mathf.Abs(transform.lossyScale.y), maximumYaw, maximumPitch);
+            if (_clickReaction != null) targetAngles *= _clickReaction.MouseLookInfluence;
 
             if (deltaTime > 0)
                 _angles = Vector2.SmoothDamp(_angles, targetAngles, ref _angleVelocity,

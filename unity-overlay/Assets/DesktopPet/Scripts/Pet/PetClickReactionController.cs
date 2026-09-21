@@ -3,7 +3,7 @@ using UnityEngine.EventSystems;
 
 namespace DesktopPet
 {
-    // Expressions and shoulders are independent of the base Animator. Head and
+    // Expressions, chest and shoulders are independent of the base Animator. Head and
     // eyelids are composed by their existing owners, avoiding competing LateUpdates.
     [DisallowMultipleComponent]
     [DefaultExecutionOrder(150)]
@@ -12,36 +12,38 @@ namespace DesktopPet
         private enum Reaction { None, Pet, Poke, Annoyed }
         private static readonly string[] Shapes = { "SmileSmall", "Smile :>", "AnnoyMiddle", "AnnoyBig",
             "EyeBrowsUp", "EyeBrowsDown", "EyesWonder", "EyesAngry" };
-        // Restrained selections from the existing shy/smile/surprise/discontent
+        // Readable at desktop scale, based on the shy/smile/surprise/discontent
         // expressions. Do not sample their entire face tracks over the sleepy eyelids.
-        private static readonly float[] PetFace = {28,12,8,0,8,0,0,0};
-        private static readonly float[] PokeFace = {0,0,10,8,35,0,18,0};
-        private static readonly float[] AnnoyedFace = {0,0,48,0,4,30,0,18};
+        private static readonly float[] PetFace = {52,24,0,0,16,0,0,0};
+        private static readonly float[] PokeFace = {0,0,0,20,55,0,35,0};
+        private static readonly float[] AnnoyedFace = {0,0,62,0,0,45,0,40};
         private static readonly int DraggingHash = Animator.StringToHash("IsDragging");
         private DesktopWindowController _window;
         private Camera _camera;
         private Animator _animator;
         private SkinnedMeshRenderer _face;
-        private Transform _head, _leftShoulder, _rightShoulder;
+        private Transform _head, _chest, _leftShoulder, _rightShoulder;
         private Collider[] _colliders;
         private Vector3 _headCentreLocal;
         private float _headRadiusLocal;
         private bool _hasDragParameter, _applied;
         private readonly int[] _indices = new int[Shapes.Length];
         private readonly float[] _baseFace = new float[Shapes.Length];
-        private Quaternion _leftBase, _rightBase;
+        private Quaternion _leftBase, _rightBase, _chestBase;
         private Reaction _reaction;
         private float _age, _duration, _lastClick = float.NegativeInfinity, _burstStart;
         private int _clickCount;
         private Vector3 _mix, _mixVelocity, _headOffset, _headVelocity;
+        private Vector3 _chestOffset, _chestVelocity;
         private float _shrug, _shrugVelocity;
 
         internal Vector3 HeadOffset => isActiveAndEnabled ? _headOffset : Vector3.zero;
+        internal float MouseLookInfluence => isActiveAndEnabled ? 1-.75f*Mathf.Clamp01(_mix.x+_mix.y+_mix.z) : 1;
         internal bool IsReacting => isActiveAndEnabled && (_age < _duration || _mix.sqrMagnitude > .000025f);
         internal float BlendEyeOpening(float sleepyOpening)
         {
             if(!isActiveAndEnabled) return sleepyOpening;
-            return Mathf.Clamp01(sleepyOpening*(1-_mix.x-_mix.y-_mix.z)+.50f*_mix.y+.30f*_mix.z);
+            return Mathf.Clamp01(sleepyOpening*(1-_mix.x-_mix.y-_mix.z)+.72f*_mix.y+.50f*_mix.z);
         }
 
         private void OnEnable()
@@ -50,6 +52,7 @@ namespace DesktopPet
             ResolveReferences();
             _reaction=Reaction.None; _age=_duration=0;
             _mix=_mixVelocity=_headOffset=_headVelocity=Vector3.zero;
+            _chestOffset=_chestVelocity=Vector3.zero;
             _shrug=_shrugVelocity=0;
             _clickCount=0; _lastClick=float.NegativeInfinity;
         }
@@ -60,6 +63,7 @@ namespace DesktopPet
             _animator=GetComponent<Animator>();
             _colliders=GetComponentsInChildren<Collider>();
             _head=transform.Find("Armature/Hips/Spine/Chest/Neck2/Neck1/Head");
+            _chest=transform.Find("Armature/Hips/Spine/Chest");
             foreach(var bone in GetComponentsInChildren<Transform>(true))
             {
                 if(bone.name=="Left shoulder") _leftShoulder=bone;
@@ -95,6 +99,7 @@ namespace DesktopPet
         private void LateUpdate() { ApplyOverlay(); }
         private void TryClick()
         {
+            if(_window==null || _camera==null) ResolveReferences();
             if(_window==null || _camera==null || !_window.TryGetCursorClientPosition(out var pointer)) return;
             if(DesktopChatController.Active!=null && DesktopChatController.Active.IsPointerOverChat(pointer)) return;
             if(EventSystem.current!=null && EventSystem.current.IsPointerOverGameObject()) return;
@@ -131,7 +136,7 @@ namespace DesktopPet
             _clickCount++; _lastClick=now;
             _reaction=_clickCount>=3 ? Reaction.Annoyed : head ? Reaction.Pet : Reaction.Poke;
             _age=0;
-            _duration=_reaction==Reaction.Pet ? 2.2f : _reaction==Reaction.Poke ? 1.45f : 2.6f;
+            _duration=_reaction==Reaction.Pet ? 2.8f : _reaction==Reaction.Poke ? 1.9f : 3f;
             return true;
         }
         internal void AdvanceReaction(float dt,bool dragging)
@@ -142,26 +147,37 @@ namespace DesktopPet
             var target=Vector3.zero;
             if(_age<_duration)
             {
-                float fade=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(_duration-.65f,_duration,_age));
+                float fade=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(_duration-.85f,_duration,_age));
                 if(_reaction==Reaction.Pet) target.x=fade;
                 else if(_reaction==Reaction.Poke) target.y=fade;
                 else if(_reaction==Reaction.Annoyed) target.z=fade;
             }
             if(dt>0)
             {
-                _mix=Vector3.SmoothDamp(_mix,target,ref _mixVelocity,dragging ? .09f : .13f,Mathf.Infinity,dt);
+                _mix=Vector3.SmoothDamp(_mix,target,ref _mixVelocity,dragging ? .09f : .10f,Mathf.Infinity,dt);
                 _mix=Vector3.Max(Vector3.zero,_mix);
                 float sum=_mix.x+_mix.y+_mix.z;
                 if(sum>1) _mix/=sum;
-                var headTarget=new Vector3(5,0,5)*_mix.x+new Vector3(-7,4,-3)*_mix.y+
-                    new Vector3(2,Mathf.Sin(_age*8)*6,0)*_mix.z;
+                float shake=Mathf.Sin(_age*7)*17*(1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(1.4f,2.2f,_age)));
+                var headTarget=new Vector3(9,0,17)*_mix.x+new Vector3(-16,5,-7)*_mix.y+
+                    new Vector3(4,shake,-3)*_mix.z;
                 _headOffset=Vector3.SmoothDamp(_headOffset,headTarget,ref _headVelocity,.12f,Mathf.Infinity,dt);
-                _shrug=Mathf.SmoothDamp(_shrug,3.5f*_mix.y+1.5f*_mix.z,ref _shrugVelocity,.12f,Mathf.Infinity,dt);
+                var chestTarget=new Vector3(3,0,4)*_mix.x+new Vector3(-5,0,-5)*_mix.y+new Vector3(2,0,3)*_mix.z;
+                _chestOffset=Vector3.SmoothDamp(_chestOffset,chestTarget,ref _chestVelocity,.15f,Mathf.Infinity,dt);
+                _shrug=Mathf.SmoothDamp(_shrug,9f*_mix.y+4f*_mix.z,ref _shrugVelocity,.12f,Mathf.Infinity,dt);
             }
         }
         internal void ApplyOverlay()
         {
             RestoreOverlay();
+            // Chest-only lean makes the silhouette readable without moving the
+            // pelvis/legs. Restore it before the gaze owner restores head/neck locals.
+            if(_chest!=null)
+            {
+                _chestBase=_chest.localRotation;
+                _chest.rotation=Quaternion.AngleAxis(_chestOffset.z,transform.forward)*
+                    Quaternion.AngleAxis(_chestOffset.x,transform.right)*_chest.rotation;
+            }
             float sum=_mix.x+_mix.y+_mix.z;
             if(_face!=null)
                 for(int i=0;i<Shapes.Length;i++) if(_indices[i]>=0)
@@ -185,6 +201,7 @@ namespace DesktopPet
         internal void RestoreOverlay()
         {
             if(!_applied) return;
+            if(_chest!=null) _chest.localRotation=_chestBase;
             if(_face!=null)
                 for(int i=0;i<Shapes.Length;i++) if(_indices[i]>=0) _face.SetBlendShapeWeight(_indices[i],_baseFace[i]);
             if(_leftShoulder!=null) _leftShoulder.localRotation=_leftBase;
@@ -195,6 +212,7 @@ namespace DesktopPet
         {
             RestoreOverlay();
             _mix=_mixVelocity=_headOffset=_headVelocity=Vector3.zero;
+            _chestOffset=_chestVelocity=Vector3.zero;
             _age=_duration=0;
         }
     }

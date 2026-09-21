@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using DesktopPet;
 using UnityEditor;
 using UnityEngine;
@@ -34,6 +35,7 @@ namespace DesktopPetEditor
             public SkinnedMeshRenderer Face;
             public Animator Animator;
             public Transform Head;
+            public float HeadMotionPixels;
             private Transform[] anchors;
             public Rig()
             {
@@ -66,9 +68,11 @@ namespace DesktopPetEditor
                 var positions=anchors.Select(b=>b.position).ToArray();
                 var rotations=anchors.Select(b=>b.rotation).ToArray();
                 var locals=anchors.Select(b=>b.localPosition).ToArray();
+                var before=View.Camera.WorldToScreenPoint(Head.position+Head.up*.18f);
                 Call(Click,"AdvanceReaction",dt,drag); Call(Click,"ApplyOverlay");
                 var pointer=(Vector2)View.Camera.WorldToScreenPoint(Head.position)+new Vector2(120,60);
                 Call(Look,"ApplyLook",pointer,mouse,dt); Call(Eyes,"AdvanceEyes",dt,drag);
+                HeadMotionPixels=Vector2.Distance(before,View.Camera.WorldToScreenPoint(Head.position+Head.up*.18f));
                 for(int i=0;i<anchors.Length;i++)
                 {
                     Check(Vector3.Distance(anchors[i].position,positions[i])<.00001f,"Hip/leg world position changed: "+anchors[i].name);
@@ -76,9 +80,9 @@ namespace DesktopPetEditor
                     Check(Vector3.Distance(anchors[i].localPosition,locals[i])<.00001f,"Bone length changed");
                 }
                 float blink=Face.GetBlendShapeWeight(Face.sharedMesh.GetBlendShapeIndex("Blink"));
-                Check(blink>=34.9f && blink<=100.01f,"Eyelid layers conflict");
+                Check(blink>=27.9f && blink<=100.01f,"Eyelid layers conflict");
                 var offset=(Vector3)Field(Click,"_headOffset");
-                Check(offset.magnitude<13 && !float.IsNaN(offset.x),"Head overlay unbounded");
+                Check(offset.magnitude<26 && !float.IsNaN(offset.x),"Head overlay unbounded");
             }
             public void Dispose() { Restore(); View.Dispose(); }
         }
@@ -86,6 +90,7 @@ namespace DesktopPetEditor
         public static void Run()
         {
             Directory.CreateDirectory(Folder); checks=0;
+            var readability=new StringBuilder();
             var oldRandom=UnityEngine.Random.state;
             try
             {
@@ -123,11 +128,13 @@ namespace DesktopPetEditor
                         for(int kind=0;kind<3;kind++)
                         {
                             rig.Reset(); rig.Tap(kind==0,0);
+                            float peakPixels=0;
                             for(int frame=0;frame<300;frame++)
                             {
                                 float t=frame/60f;
                                 if(kind==2 && (frame==18 || frame==36)) rig.Tap(false,t);
                                 rig.Step(1f/60,clip,t%clip.length);
+                                peakPixels=Mathf.Max(peakPixels,rig.HeadMotionPixels);
                                 if(frame==60)
                                 {
                                     float blink=rig.Face.GetBlendShapeWeight(rig.Face.sharedMesh.GetBlendShapeIndex("Blink"));
@@ -137,6 +144,9 @@ namespace DesktopPetEditor
                             }
                             Check(((Vector3)Field(rig.Click,"_mix")).magnitude<.002f,"Expression must return to idle");
                             Check(((Vector3)Field(rig.Click,"_headOffset")).magnitude<.02f,"Head must settle back");
+                            Check(((Vector3)Field(rig.Click,"_chestOffset")).magnitude<.02f,"Chest must settle back");
+                            Check(peakPixels>4,"Feedback too small at full-body scale: "+clip.name+" "+kind+" "+peakPixels);
+                            readability.AppendLine(clip.name+" reaction "+kind+": peak head landmark displacement="+peakPixels.ToString("F2")+" px at 520x700.");
                         }
                     // Holding a base pose without Animator keyframes must not accumulate offsets.
                     rig.Reset(); clips[2].SampleAnimation(rig.View.Pet,0);
@@ -165,11 +175,9 @@ namespace DesktopPetEditor
                         Check(rig.Animator.GetCurrentAnimatorStateInfo(0).IsName(state=="SitLoop" ? "SitCrossLeg" : state),"Click changed base state");
                     }
                     rig.Restore(); rig.Animator.enabled=false; rig.Animator.SetBool("IsDragging",false);
-                    // Close-up film: petting / one poke / repeated pokes, with returns to sleep.
+                    // Judge at the actual full-body framing, not a magnified face.
                     rig.Reset(); clips[0].SampleAnimation(rig.View.Pet,0);
-                    var pivot=rig.Face.bounds.center;
-                    rig.View.Camera.orthographicSize=.27f;
-                    rig.View.Camera.transform.position=pivot+Vector3.forward*5; rig.View.Camera.transform.LookAt(pivot);
+                    for(int pose=0;pose<2;pose++)
                     for(int kind=0;kind<3;kind++)
                     {
                         rig.Reset(); rig.Tap(kind==0,0);
@@ -177,8 +185,8 @@ namespace DesktopPetEditor
                         {
                             float t=frame/60f;
                             if(kind==2 && (frame==18 || frame==36)) rig.Tap(false,t);
-                            rig.Step(1f/60,clips[0],0);
-                            rig.View.Render(Folder+"/reaction-"+(kind*300+frame).ToString("D4")+".png");
+                            rig.Step(1f/60,clips[pose==0?0:2],0);
+                            rig.View.Render(Folder+"/readable-"+(pose==0?"standing-":"seated-")+(kind*300+frame).ToString("D4")+".png");
                         }
                     }
                 }
@@ -193,6 +201,7 @@ namespace DesktopPetEditor
                 AssetDatabase.SaveAssets();
                 Check(AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath).GetComponents<PetClickReactionController>().Length==1,"Installed once on prefab");
                 File.WriteAllText(Folder+"/validation.txt","PASS "+checks+" checks: crown/body/background collider picking across standing/sitting/crossed poses, cooldown, burst escalation/reset, face and eyelid blending, fixed hips/legs, no pose accumulation, restoring expressions, drag cancellation, live Animator and mouse look, prefab installation.\n");
+                File.WriteAllText(Folder+"/readability.txt",readability.ToString());
             }
             finally { UnityEngine.Random.state=oldRandom; }
         }
