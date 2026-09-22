@@ -42,14 +42,17 @@ namespace DesktopPetEditor
                 var hips=bone("Hips"); var head=bone("Head"); var chest=bone("Chest");
                 ValidateArms(view,clip,bone,report);
                 clip.SampleAnimation(view.Pet,0);
-                float foldedAngle=ArmAngle(bone,"Left");
-                float foldedDistance=Vector3.Distance(bone("Left wrist").position,chest.position);
-                clip.SampleAnimation(view.Pet,DesktopPetDragAuthoring.ArmPeriod*.53f);
-                float reachAngle=ArmAngle(bone,"Left");
-                float reachedDistance=Vector3.Distance(bone("Left wrist").position,chest.position);
-                Check(foldedAngle>85 && reachAngle<90 && reachAngle<foldedAngle-20,$"Gathered arms must unfold into a rounded embrace: {foldedAngle:F2}->{reachAngle:F2}; distance {foldedDistance:F3}->{reachedDistance:F3}");
-                Check(reachedDistance>foldedDistance+.12f,"Hands must visibly extend away from chest");
-                report.AppendLine($"Arm flexion: gathered={foldedAngle:F1}deg, reaching={reachAngle:F1}deg; wrist/chest distance={foldedDistance:F3}->{reachedDistance:F3}m.");
+                float downDrop=bone("Left arm").position.y-bone("Left wrist").position.y;
+                Check(downDrop>.40f,"Both arms should begin hanging down, not folded at the chest");
+                clip.SampleAnimation(view.Pet,DesktopPetDragAuthoring.ArmPeriod*.34f);
+                float levelDrop=Mathf.Abs(bone("Left arm").position.y-bone("Left wrist").position.y);
+                var frame=Quaternion.Inverse(Quaternion.Euler(0,30,0));
+                float levelSide=(frame*(bone("Left wrist").position-chest.position)).x;
+                Check(levelDrop>.25f,"Open the arms diagonally downward along the hanging torso, not horizontally");
+                clip.SampleAnimation(view.Pet,DesktopPetDragAuthoring.ArmPeriod*.49f);
+                float hugSide=(frame*(bone("Left wrist").position-chest.position)).x;
+                Check(hugSide>levelSide+.12f,"Forearms should close inward from the raised pose");
+                report.AppendLine($"Arm stages: hanging drop={downDrop:F3}m, open-arm drop={levelDrop:F3}m, inward scoop={hugSide-levelSide:F3}m.");
                 clip.SampleAnimation(view.Pet,.6f);
                 float leftHigh=bone("Left ankle").position.y-bone("Right ankle").position.y;
                 clip.SampleAnimation(view.Pet,1.8f);
@@ -111,10 +114,17 @@ namespace DesktopPetEditor
             Func<string,Transform> bone,StringBuilder report)
         {
             var joints=new[]{"Left arm","Left elbow","Left wrist","Right arm","Right elbow","Right wrist"}.Select(bone).ToArray();
+            var restRotations=new[]{bone("Left arm").rotation,bone("Right arm").rotation};
+            var restNormals=new[]{"Left","Right"}.Select(side=>Vector3.Cross(
+                bone(side+" elbow").position-bone(side+" arm").position,
+                bone(side+" wrist").position-bone(side+" elbow").position).normalized).ToArray();
+            var palmSigns=new[]{"_L","_R"}.Select(suffix=>Vector3.Dot(Vector3.Cross(
+                bone("IndexFinger1"+suffix).position-bone("LittleFinger1"+suffix).position,
+                bone("MiddleFinger1"+suffix).position-bone(suffix=="_L"?"Left wrist":"Right wrist").position),Vector3.down)>=0?1f:-1f).ToArray();
             var previous=new Quaternion[joints.Length]; var previousDelta=new Quaternion[joints.Length];
             clip.SampleAnimation(view.Pet,0);
             var wrists=new[]{bone("Left wrist").localRotation,bone("Right wrist").localRotation};
-            float maxStep=0,maxAcceleration=0,maxWrist=0,minElbow=180,maxElbow=0;
+            float maxStep=0,maxAcceleration=0,maxWrist=0,minElbow=180,maxElbow=0,minPalmInward=1,maxShoulderDeparture=0;
             string peakJoint=""; float peakTime=0;
             for(int frame=0;frame<=Mathf.RoundToInt(clip.length*120);frame++)
             {
@@ -137,15 +147,34 @@ namespace DesktopPetEditor
                 {
                     float flex=ArmAngle(bone,side); minElbow=Mathf.Min(minElbow,flex); maxElbow=Mathf.Max(maxElbow,flex);
                     maxWrist=Mathf.Max(maxWrist,Quaternion.Angle(wrists[side=="Left"?0:1],bone(side+" wrist").localRotation));
+                    int index=side=="Left"?0:1;
+                    var upper=bone(side+" elbow").position-bone(side+" arm").position;
+                    var lower=bone(side+" wrist").position-bone(side+" elbow").position;
+                    var expected=bone(side+" arm").rotation*Quaternion.Inverse(restRotations[index])*restNormals[index];
+                    Check(Vector3.Dot(expected,Vector3.Cross(upper,lower).normalized)>.98f,"Elbow bent opposite the rig's anatomical direction");
+                    var forward=Quaternion.Euler(0,30,0)*Vector3.forward;
+                    Check(Vector3.Dot(upper,forward)>0 && Vector3.Dot(lower,forward)>0,"Arm travelled behind the hanging body");
+                    var torso=bone("Neck2").position-bone("Chest").position;
+                    float departure=Vector3.Angle(upper,torso);
+                    maxShoulderDeparture=Mathf.Max(maxShoulderDeparture,departure);
+                    Check(departure<55,"Upper arm sharply opposes the hanging torso");
+                    Check(bone(side+" arm").position.y-bone(side+" wrist").position.y>.25f,"Hands raised horizontally instead of embracing downward");
+                    string suffix=index==0?"_L":"_R";
+                    var palmNormal=palmSigns[index]*Vector3.Cross(bone("IndexFinger1"+suffix).position-bone("LittleFinger1"+suffix).position,
+                        bone("MiddleFinger1"+suffix).position-bone(side+" wrist").position).normalized;
+                    var inward=Quaternion.Euler(0,30,0)*(index==0?Vector3.right:Vector3.left);
+                    float facing=Vector3.Dot(palmNormal,inward); minPalmInward=Mathf.Min(minPalmInward,facing);
+                    Check(facing>.65f,$"Palm must face inward, with the back of the hand facing outward: {side} at {frame/120f:F3}s dot={facing:F3}");
                 }
             }
             string metrics=$"Arm continuity at 120fps: max joint step={maxStep:F3}deg ({peakJoint} at {peakTime:F3}s), delta change={maxAcceleration:F3}deg; elbow flexion={minElbow:F1}..{maxElbow:F1}deg; wrist deviation={maxWrist:F3}deg.";
             File.WriteAllText(Folder+"/arm-validation.txt",metrics);
             Check(maxStep<4,"Arm joint discontinuity: "+metrics);
             Check(maxAcceleration<.8f,"Arm angular speed changes abruptly: "+metrics);
-            Check(minElbow>24 && maxElbow<126,"Elbow collapse or lockout: "+metrics);
+            Check(minElbow>5 && maxElbow<90,"Elbow collapse or lockout: "+metrics);
             Check(maxWrist<.2f,"Wrist should follow forearm without independent folding: "+metrics);
             report.AppendLine(metrics);
+            report.AppendLine($"Embrace orientation: minimum palm-inward dot={minPalmInward:F3}; maximum upper-arm/torso departure={maxShoulderDeparture:F1}deg.");
         }
 
         private static void RenderSequence(DesktopPetDragReview.ReviewScene view,ProceduralDragPoseController spring,
@@ -178,12 +207,19 @@ namespace DesktopPetEditor
             Check(minDrop>.30f,"Head should hang substantially below the hips");
             Check(maxSwing>7,"Sway not readable during drag");
             report.AppendLine($"Combined: maximum swing={maxSwing:F2}deg; head remains at least {minDrop:F3}m below hips; hip pivot unchanged.");
-            var pivot=new Vector3(0,.75f,0);
+            var pivot=new Vector3(0,.75f,.08f);
             view.Camera.transform.position=pivot+Vector3.right*5; view.Camera.transform.LookAt(pivot);
-            clip.SampleAnimation(view.Pet,0); view.Render(Folder+"/side-gathered.png");
+            view.Camera.orthographicSize=1.2f;
+            for(int frame=0;frame<Mathf.RoundToInt(clip.length*60);frame++)
+            {
+                clip.SampleAnimation(view.Pet,frame/60f);
+                view.Render(Folder+"/arm-side-"+frame.ToString("D3")+".png");
+            }
+            clip.SampleAnimation(view.Pet,0); view.Render(Folder+"/side-down.png");
+            clip.SampleAnimation(view.Pet,DesktopPetDragAuthoring.ArmPeriod*.34f); view.Render(Folder+"/side-level.png");
             clip.SampleAnimation(view.Pet,DesktopPetDragAuthoring.ArmPeriod*.53f); view.Render(Folder+"/side-reaching.png");
             view.Camera.transform.position=new Vector3(0,.45f,-5); view.Camera.transform.LookAt(new Vector3(0,.75f,0));
-            clip.SampleAnimation(view.Pet,0); view.Render(Folder+"/chest-gathered.png");
+            clip.SampleAnimation(view.Pet,0); view.Render(Folder+"/chest-down.png");
             clip.SampleAnimation(view.Pet,DesktopPetDragAuthoring.ArmPeriod*.53f); view.Render(Folder+"/chest-reaching.png");
             Call(spring,"OnDisable");
         }

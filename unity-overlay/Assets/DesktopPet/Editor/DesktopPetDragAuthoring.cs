@@ -183,31 +183,64 @@ namespace DesktopPetEditor
             private void PoseArm(string side, float sign, float seconds)
             {
                 float phase=Mathf.Repeat(seconds/ArmPeriod,1);
-                float reach=phase<.15f ? 0 : phase<.5f ? Ease((phase-.15f)/.35f) : phase<.62f ? 1 : 1-Ease((phase-.62f)/.38f);
-                // Gather near the chest, open the arms, reach, curl the fingers as
-                // if trying to catch something, then recover slowly. Not a leg kick.
-                var chest=Bone("Chest");
-                var chestFront=chest.rotation*Quaternion.Inverse(world[chest])*Vector3.forward;
-                var folded=chest.position+chestFront*.20f+yaw*new Vector3(-sign*.06f,sign*.025f,0);
-                var extended=chest.position+yaw*new Vector3(sign*.13f,-.34f,.42f);
-                // One continuous cubic: unfold out to each side, sweep forward,
-                // then scoop inward. Ease changes time, not the shape of this arc.
-                var outside=chest.position+yaw*new Vector3(sign*.52f,-.05f,-.24f);
-                var forwardSide=chest.position+yaw*new Vector3(sign*.50f,-.38f,.32f);
-                float inverse=1-reach;
-                var target=inverse*inverse*inverse*folded+3*inverse*inverse*reach*outside+
-                    3*inverse*reach*reach*forwardSide+reach*reach*reach*extended;
-                SolveArm(side,target,yaw*new Vector3(sign*.10f,-1,-.15f));
+                var downUpper=new Vector3(sign*.22f,-1,.12f).normalized;
+                var downLower=new Vector3(sign*.10f,-1,.38f).normalized;
+                var torso=Quaternion.Inverse(yaw)*(Bone("Neck2").position-Bone("Chest").position).normalized;
+                // Open below the shoulders along the hanging torso, never level
+                // with the screen. Elbows stay outside the imaginary held object.
+                var levelUpper=new Vector3(sign*.72f,torso.y*.80f,torso.z+.10f).normalized;
+                var levelLower=new Vector3(sign*.34f,torso.y*.75f,torso.z+.42f).normalized;
+                var hugUpper=new Vector3(sign*.50f,torso.y*.90f,torso.z+.08f).normalized;
+                var hugLower=new Vector3(-sign*.62f,-.55f,.65f).normalized;
+                Vector3 upperDirection,lowerDirection;
+                float reach=Ease((phase-.10f)/.24f)*(1-Ease((phase-.78f)/.22f));
+                float searching=phase>=.49f && phase<.78f ? (phase-.49f)/.29f : 0;
+                float searchWeight=Mathf.Pow(Mathf.Sin(searching*Mathf.PI),2);
+                if(phase<.34f)
+                {
+                    float t=Ease((phase-.10f)/.24f);
+                    upperDirection=Vector3.Slerp(downUpper,levelUpper,t);
+                    lowerDirection=Vector3.Slerp(downLower,levelLower,t);
+                }
+                else if(phase<.49f)
+                {
+                    float t=Ease((phase-.34f)/.15f);
+                    upperDirection=Vector3.Slerp(levelUpper,hugUpper,t);
+                    lowerDirection=Vector3.Slerp(levelLower,hugLower,t);
+                }
+                else if(phase<.78f)
+                {
+                    // Soft, offset attempts to catch something: not mirrored flaps.
+                    float lateral=Mathf.Sin(searching*Mathf.PI*2*1.25f+sign*.35f);
+                    float vertical=Mathf.Sin(searching*Mathf.PI*2*1.5f-sign*.3f);
+                    upperDirection=hugUpper+searchWeight*new Vector3(.09f*lateral,.11f*vertical,0);
+                    lowerDirection=hugLower+searchWeight*new Vector3(.14f*lateral,.14f*vertical,.03f*vertical);
+                }
+                else
+                {
+                    float t=Ease((phase-.78f)/.22f);
+                    upperDirection=Vector3.Slerp(hugUpper,downUpper,t);
+                    lowerDirection=Vector3.Slerp(hugLower,downLower,t);
+                }
+                PoseArmChain(side,yaw*upperDirection,yaw*lowerDirection);
                 string suffix = side == "Left" ? "_L" : "_R";
                 var elbow=Bone(side+" elbow"); var wrist=Bone(side+" wrist");
-                var forearmDelta=elbow.rotation*Quaternion.Inverse(world[elbow]);
-                // Keep the wrist neutral relative to the forearm; never aim it
-                // independently across the forearm or through the back of the hand.
-                wrist.rotation=forearmDelta*world[wrist];
-                float grasp=phase>=.48f && phase<.78f ? Mathf.Pow(Mathf.Sin((phase-.48f)/.30f*Mathf.PI),2) : 0;
+                float grasp=searchWeight*(.55f+.45f*Mathf.Sin(searching*Mathf.PI*4-sign*.3f));
                 var palmNormal=Vector3.Cross(worldPositions[Bone("IndexFinger1"+suffix)]-worldPositions[Bone("LittleFinger1"+suffix)],
                     worldPositions[Bone("MiddleFinger1"+suffix)]-worldPositions[wrist]).normalized;
                 if(Vector3.Dot(palmNormal,Vector3.down)<0) palmNormal=-palmNormal;
+                var forearmAxis=(wrist.position-elbow.position).normalized;
+                var forearmDelta=elbow.rotation*Quaternion.Inverse(world[elbow]);
+                var palm=Vector3.ProjectOnPlane(forearmDelta*palmNormal,forearmAxis);
+                var inward=Vector3.ProjectOnPlane(yaw*new Vector3(-sign,-.08f,.10f),forearmAxis);
+                // Forearm supination turns the palms toward the held object.
+                // This is axial rotation, not wrist bending; the elbow and wrist
+                // positions and the elbow's anatomical flexion are unchanged.
+                float twist=Vector3.SignedAngle(palm,inward,forearmAxis);
+                elbow.rotation=Quaternion.AngleAxis(twist,forearmAxis)*elbow.rotation;
+                var restHandForward=worldPositions[Bone("MiddleFinger1"+suffix)]-worldPositions[wrist];
+                wrist.rotation=Quaternion.LookRotation(forearmAxis,inward)*
+                    Quaternion.Inverse(Quaternion.LookRotation(restHandForward,palmNormal))*world[wrist];
                 foreach (string finger in new[] {"IndexFinger", "MiddleFinger", "RingFinger", "LittleFinger"})
                     for (int joint = 1; joint <= 3; joint++)
                     {
@@ -220,26 +253,15 @@ namespace DesktopPetEditor
                     }
             }
 
-            private void SolveArm(string side,Vector3 target,Vector3 pole)
+            private void PoseArmChain(string side,Vector3 upperDirection,Vector3 lowerDirection)
             {
                 var arm=Bone(side+" arm"); var elbow=Bone(side+" elbow"); var wrist=Bone(side+" wrist");
-                float upper=Vector3.Distance(worldPositions[arm],worldPositions[elbow]);
-                float lower=Vector3.Distance(worldPositions[elbow],worldPositions[wrist]);
-                var axis=(target-arm.position).normalized;
-                // Keep the elbow away from both full extension and acute collapse.
-                float minDistance=Mathf.Sqrt(upper*upper+lower*lower+2*upper*lower*Mathf.Cos(125*Mathf.Deg2Rad));
-                float maxDistance=Mathf.Sqrt(upper*upper+lower*lower+2*upper*lower*Mathf.Cos(25*Mathf.Deg2Rad));
-                float distance=Mathf.Clamp(Vector3.Distance(target,arm.position),minDistance,maxDistance);
-                float along=(upper*upper-lower*lower+distance*distance)/(2*distance);
-                var bend=(pole-axis*Vector3.Dot(pole,axis)).normalized;
-                var joint=arm.position+axis*along+bend*Mathf.Sqrt(Mathf.Max(0,upper*upper-along*along));
-                var upperDirection=joint-arm.position;
-                var lowerDirection=arm.position+axis*distance-joint;
                 var normal=Vector3.Cross(upperDirection,lowerDirection).normalized;
                 var restUpper=worldPositions[elbow]-worldPositions[arm];
                 var restLower=worldPositions[wrist]-worldPositions[elbow];
-                var restNormal=Vector3.Cross(restUpper,Vector3.forward).normalized;
-                // A shared hinge plane fixes axial twist as well as bone direction.
+                // Use the rig's actual elbow bend, not an assumed world-forward
+                // plane. Both bones share this plane and always bend its same way.
+                var restNormal=Vector3.Cross(restUpper,restLower).normalized;
                 arm.rotation=Quaternion.LookRotation(upperDirection,normal)*
                     Quaternion.Inverse(Quaternion.LookRotation(restUpper,restNormal))*world[arm];
                 elbow.rotation=Quaternion.LookRotation(lowerDirection,normal)*
