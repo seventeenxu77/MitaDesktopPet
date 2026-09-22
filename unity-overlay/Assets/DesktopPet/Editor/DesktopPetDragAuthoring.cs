@@ -177,6 +177,12 @@ namespace DesktopPetEditor
                 float kick=seconds/LegPeriod*Mathf.PI*2;
                 PoseLeg("Left", -1, kick);
                 PoseLeg("Right", 1, kick + Mathf.PI);
+                // Apply last so the chest, shoulders, arms and head ride the
+                // torso instead of having their world-space targets cancel it.
+                var pitchAxis=yaw*Vector3.right;
+                Bone("Spine").rotation=Quaternion.AngleAxis(8*Mathf.Sin(2*p-.25f)+1.5f*Mathf.Sin(p),pitchAxis)*
+                    Quaternion.AngleAxis(2*Mathf.Sin(p-.4f),yaw*Vector3.forward)*Bone("Spine").rotation;
+                Bone("Chest").rotation=Quaternion.AngleAxis(4*Mathf.Sin(2*p-.70f),pitchAxis)*Bone("Chest").rotation;
             }
 
             private static float Ease(float t) { t=Mathf.Clamp01(t); return t*t*t*(t*(t*6-15)+10); }
@@ -274,7 +280,21 @@ namespace DesktopPetEditor
                 float follow=Mathf.Sin(phase-.65f);
                 Aim(side + " leg", side + " knee", yaw * new Vector3(sign*.22f,-.87f+.16f*wave,-.48f-.18f*wave));
                 Aim(side + " knee", side + " ankle", yaw * new Vector3(sign*.08f,-.78f+.55f*follow,-.42f-.30f*follow));
-                Aim(side + " ankle", side + " toe", yaw * new Vector3(sign*.035f,-.65f+.10f*Mathf.Sin(phase-1),-.40f));
+                var knee=Bone(side+" knee"); var ankle=Bone(side+" ankle"); var toe=Bone(side+" toe");
+                var restShin=worldPositions[ankle]-worldPositions[knee];
+                var restFoot=worldPositions[toe]-worldPositions[ankle];
+                var neutralShin=Quaternion.FromToRotation(restShin,(yaw*new Vector3(sign*.08f,-.78f,-.42f)).normalized)*world[knee];
+                var neutralFoot=Quaternion.FromToRotation(restFoot,(yaw*new Vector3(sign*.035f,-.65f,-.40f)).normalized)*world[ankle];
+                float delayed=Mathf.Sin(phase-.65f-.20f);
+                var delayedShin=Quaternion.FromToRotation(restShin,(yaw*new Vector3(sign*.08f,-.78f+.55f*delayed,-.42f-.30f*delayed)).normalized)*world[knee];
+                // Follow the shin, with ~76 ms of soft ankle lag. Keep the
+                // ankle position inherited from its parent; never slide it.
+                var flexAxis=Quaternion.Inverse(neutralFoot)*(yaw*Vector3.right);
+                ankle.localRotation=Quaternion.Inverse(knee.rotation)*delayedShin*
+                    Quaternion.Inverse(neutralShin)*neutralFoot*
+                    Quaternion.AngleAxis(4*Mathf.Sin(phase-.9f),flexAxis);
+                var toeAxis=Quaternion.Inverse(world[toe])*Vector3.right;
+                toe.localRotation=local[toe]*Quaternion.AngleAxis(-2+3.5f*Mathf.Sin(phase-1.2f),toeAxis);
             }
 
             public void Lift(float progress)

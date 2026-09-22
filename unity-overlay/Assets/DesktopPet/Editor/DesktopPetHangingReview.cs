@@ -41,6 +41,7 @@ namespace DesktopPetEditor
                 Func<string,Transform> bone=name=>bones.First(b=>b.name==name);
                 var hips=bone("Hips"); var head=bone("Head"); var chest=bone("Chest");
                 ValidateArms(view,clip,bone,report);
+                ValidateFollowThrough(view,clip,bone,report);
                 clip.SampleAnimation(view.Pet,0);
                 float downDrop=bone("Left arm").position.y-bone("Left wrist").position.y;
                 Check(downDrop>.40f,"Both arms should begin hanging down, not folded at the chest");
@@ -152,8 +153,7 @@ namespace DesktopPetEditor
                     var lower=bone(side+" wrist").position-bone(side+" elbow").position;
                     var expected=bone(side+" arm").rotation*Quaternion.Inverse(restRotations[index])*restNormals[index];
                     Check(Vector3.Dot(expected,Vector3.Cross(upper,lower).normalized)>.98f,"Elbow bent opposite the rig's anatomical direction");
-                    var forward=Quaternion.Euler(0,30,0)*Vector3.forward;
-                    Check(Vector3.Dot(upper,forward)>0 && Vector3.Dot(lower,forward)>0,"Arm travelled behind the hanging body");
+                    Check(upper.y<0 && lower.y<0,"Arms must remain downward during torso follow-through");
                     var torso=bone("Neck2").position-bone("Chest").position;
                     float departure=Vector3.Angle(upper,torso);
                     maxShoulderDeparture=Mathf.Max(maxShoulderDeparture,departure);
@@ -175,6 +175,56 @@ namespace DesktopPetEditor
             Check(maxWrist<.2f,"Wrist should follow forearm without independent folding: "+metrics);
             report.AppendLine(metrics);
             report.AppendLine($"Embrace orientation: minimum palm-inward dot={minPalmInward:F3}; maximum upper-arm/torso departure={maxShoulderDeparture:F1}deg.");
+        }
+
+        private static void ValidateFollowThrough(DesktopPetDragReview.ReviewScene view,AnimationClip clip,
+            Func<string,Transform> bone,StringBuilder report)
+        {
+            var yawInverse=Quaternion.Inverse(Quaternion.Euler(0,30,0));
+            Vector3 chestMin=Vector3.one*100,chestMax=Vector3.one*-100;
+            clip.SampleAnimation(view.Pet,0);
+            var spineStart=bone("Spine").localRotation;
+            var hipsStart=bone("Hips").position;
+            float spineRange=0;
+            foreach(var side in new[]{"Left","Right"})
+            {
+                var knee=bone(side+" knee"); var ankle=bone(side+" ankle"); var toe=bone(side+" toe");
+                var ankleLocalPosition=ankle.localPosition;
+                var toeLocalPosition=toe.localPosition;
+                float minFoot=180,maxFoot=-180,minRelative=180,maxRelative=-180;
+                double sx=0,sy=0,sxx=0,syy=0,sxy=0; int count=0;
+                var firstToe=toe.localRotation; float toeRange=0;
+                for(int frame=0;frame<=864;frame++)
+                {
+                    clip.SampleAnimation(view.Pet,frame/120f);
+                    var shin=yawInverse*(ankle.position-knee.position);
+                    var foot=yawInverse*(toe.position-ankle.position);
+                    float shinAngle=Mathf.Atan2(shin.z,-shin.y)*Mathf.Rad2Deg;
+                    float footAngle=Mathf.Atan2(foot.z,-foot.y)*Mathf.Rad2Deg;
+                    minFoot=Mathf.Min(minFoot,footAngle); maxFoot=Mathf.Max(maxFoot,footAngle);
+                    float relative=Mathf.DeltaAngle(shinAngle,footAngle);
+                    minRelative=Mathf.Min(minRelative,relative); maxRelative=Mathf.Max(maxRelative,relative);
+                    sx+=shinAngle; sy+=footAngle; sxx+=shinAngle*shinAngle; syy+=footAngle*footAngle; sxy+=shinAngle*footAngle; count++;
+                    Check(Vector3.Distance(ankle.localPosition,ankleLocalPosition)<.00001f,"Ankle slid instead of following the shin");
+                    Check(Vector3.Distance(toe.localPosition,toeLocalPosition)<.00001f,"Toe translation changed");
+                    Check(Vector3.Distance(bone("Hips").position,hipsStart)<.00001f,"Torso bob moved the suspension pivot");
+                    toeRange=Mathf.Max(toeRange,Quaternion.Angle(firstToe,toe.localRotation));
+                    var chest=yawInverse*bone("Neck2").position;
+                    chestMin=Vector3.Min(chestMin,chest); chestMax=Vector3.Max(chestMax,chest);
+                    spineRange=Mathf.Max(spineRange,Quaternion.Angle(spineStart,bone("Spine").localRotation));
+                }
+                double correlation=(count*sxy-sx*sy)/Math.Sqrt((count*sxx-sx*sx)*(count*syy-sy*sy));
+                Check(maxFoot-minFoot>35,"Foot remains world-locked during shin rotation");
+                Check(correlation>.90,"Foot does not follow shin swing");
+                Check(maxRelative-minRelative>3 && maxRelative-minRelative<30,"Ankle follow-through too stiff or excessive");
+                Check(toeRange>3 && toeRange<9,"Missing or excessive toe follow-through");
+                report.AppendLine($"{side} foot: pitch range={maxFoot-minFoot:F1}deg, shin correlation={correlation:F3}, ankle relative range={maxRelative-minRelative:F1}deg, toe follow={toeRange:F1}deg; no translation.");
+            }
+            var travel=chestMax-chestMin;
+            var metrics=$"Torso: spine excursion={spineRange:F1}deg; upper-chest travel vertical={travel.y:F3}m, fore/aft={travel.z:F3}m; hips fixed.";
+            File.WriteAllText(Folder+"/follow-through-validation.txt",report.ToString()+metrics);
+            Check(spineRange>8 && travel.z>.04f && travel.y>.008f,"Torso motion not readable: "+metrics);
+            report.AppendLine(metrics);
         }
 
         private static void RenderSequence(DesktopPetDragReview.ReviewScene view,ProceduralDragPoseController spring,
@@ -207,9 +257,9 @@ namespace DesktopPetEditor
             Check(minDrop>.30f,"Head should hang substantially below the hips");
             Check(maxSwing>7,"Sway not readable during drag");
             report.AppendLine($"Combined: maximum swing={maxSwing:F2}deg; head remains at least {minDrop:F3}m below hips; hip pivot unchanged.");
-            var pivot=new Vector3(0,.75f,.08f);
+            var pivot=new Vector3(0,.75f,0);
             view.Camera.transform.position=pivot+Vector3.right*5; view.Camera.transform.LookAt(pivot);
-            view.Camera.orthographicSize=1.2f;
+            view.Camera.orthographicSize=1.3f;
             for(int frame=0;frame<Mathf.RoundToInt(clip.length*60);frame++)
             {
                 clip.SampleAnimation(view.Pet,frame/60f);
