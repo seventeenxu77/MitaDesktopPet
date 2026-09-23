@@ -15,6 +15,7 @@ namespace DesktopPet
 
         public bool IsDragging { get; private set; }
         public bool IsClickThrough { get; private set; }
+        public bool AlwaysOnTop => alwaysOnTop;
         public Vector2 DragVelocityPixelsPerSecond { get; private set; }
 
         public event Action DragStarted;
@@ -209,6 +210,41 @@ namespace DesktopPet
 #endif
         }
 
+        public void SetAlwaysOnTop(bool value)
+        {
+            alwaysOnTop = value;
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+            if (_windowHandle == IntPtr.Zero) return;
+            SetWindowPos(
+                _windowHandle,
+                alwaysOnTop ? HwndTopmost : HwndNotTopmost,
+                0,
+                0,
+                0,
+                0,
+                SwpNoMove | SwpNoSize | SwpNoActivate);
+#endif
+        }
+
+        public void RecallToPrimaryWorkArea()
+        {
+#if UNITY_STANDALONE_WIN && !UNITY_EDITOR
+            if (_windowHandle == IntPtr.Zero) return;
+            var workArea = default(RECT);
+            if (!SystemParametersInfo(SpiGetWorkArea, 0, ref workArea, 0))
+            {
+                workArea.Left = 0;
+                workArea.Top = 0;
+                workArea.Right = Screen.currentResolution.width;
+                workArea.Bottom = Screen.currentResolution.height;
+            }
+            int x = workArea.Left + Mathf.Max(0, (workArea.Right - workArea.Left - windowWidth) / 2);
+            int y = workArea.Top + Mathf.Max(0, (workArea.Bottom - workArea.Top - windowHeight) / 2);
+            SetWindowPos(_windowHandle, alwaysOnTop ? HwndTopmost : HwndNotTopmost,
+                x, y, 0, 0, SwpNoSize | SwpNoActivate);
+#endif
+        }
+
         public void SetClickThrough(bool clickThrough)
         {
 #if UNITY_STANDALONE_WIN && !UNITY_EDITOR
@@ -321,6 +357,7 @@ namespace DesktopPet
         private const int GwlStyle = -16;
         private const int GwlExtendedStyle = -20;
         private const int VkRightButton = 0x02;
+        private const uint SpiGetWorkArea = 0x0030;
 
         private const long WsCaption = 0x00C00000L;
         private const long WsThickFrame = 0x00040000L;
@@ -341,6 +378,7 @@ namespace DesktopPet
         private const uint LwaColorKey = 0x00000001;
 
         private static readonly IntPtr HwndTopmost = new IntPtr(-1);
+        private static readonly IntPtr HwndNotTopmost = new IntPtr(-2);
 
         private delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
 
@@ -383,6 +421,9 @@ namespace DesktopPet
 
         [DllImport("user32.dll")]
         private static extern bool ScreenToClient(IntPtr window, ref POINT point);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SystemParametersInfo(uint action, uint parameter, ref RECT value, uint flags);
 
         [DllImport("user32.dll")]
         private static extern bool GetWindowRect(IntPtr window, out RECT rect);

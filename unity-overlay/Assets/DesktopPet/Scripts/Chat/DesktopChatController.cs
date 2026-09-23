@@ -16,13 +16,14 @@ namespace DesktopPet
         private OpenAIResponsesChatBackend _openAI;
         private CodexSubscriptionChatBackend _codex;
         private GPTSoVitsSpeechController _speech;
+        private DesktopPetRuntimeSettings _runtimeSettings;
         private readonly List<string> _messages = new List<string>();
         private string _draft = "", _pendingText, _notice = "";
         private string _keyDraft = "", _modelDraft = "", _personaDraft = "";
         private bool _open, _settings, _unread, _wasComposing;
         private int _lastSubmitFrame = -1, _turnVersion;
         private float _sentAt;
-        private Vector2 _scroll, _personaScroll;
+        private Vector2 _scroll, _personaScroll, _settingsScroll;
         private GUIStyle _panelStyle, _labelStyle, _mutedStyle, _buttonStyle, _fieldStyle, _historyStyle;
         private Font _font;
         private Texture2D _panelTexture, _buttonTexture, _fieldTexture;
@@ -46,6 +47,7 @@ namespace DesktopPet
             _codex = backendComponent as CodexSubscriptionChatBackend;
             _speech = GetComponent<GPTSoVitsSpeechController>();
             if (_speech == null) _speech = gameObject.AddComponent<GPTSoVitsSpeechController>();
+            _runtimeSettings = FindObjectOfType<DesktopPetRuntimeSettings>();
         }
 
         private void Start()
@@ -118,7 +120,7 @@ namespace DesktopPet
                 GUILayout.BeginHorizontal();
                 GUILayout.Label("米塔 · 桌面对话", _labelStyle, GUILayout.Height(28));
                 if (GUILayout.Button("新对话", _buttonStyle, GUILayout.Width(74), GUILayout.Height(28))) NewConversation();
-                GUI.enabled = !IsBusy && (_openAI != null || _codex != null);
+                GUI.enabled = !IsBusy && (_openAI != null || _codex != null || _runtimeSettings != null);
                 if (GUILayout.Button("设置", _buttonStyle, GUILayout.Width(60), GUILayout.Height(28))) OpenSettings();
                 GUI.enabled = oldEnabled;
                 if (GUILayout.Button("收起", _buttonStyle, GUILayout.Width(60), GUILayout.Height(28))) TogglePanel();
@@ -156,6 +158,7 @@ namespace DesktopPet
 
         private void DrawSettings()
         {
+            _settingsScroll = GUILayout.BeginScrollView(_settingsScroll, GUILayout.Height(244));
             if (_codex != null)
             {
                 GUILayout.Label("ChatGPT 订阅 · " + _codex.StatusText, _mutedStyle);
@@ -164,11 +167,12 @@ namespace DesktopPet
                 if (GUILayout.Button("登录 ChatGPT", _buttonStyle, GUILayout.Height(28))) _codex.BeginChatGptLogin();
                 GUILayout.EndHorizontal();
             }
-            else
+            else if (_openAI != null)
             {
                 GUILayout.Label("API Key · 仅本次运行保存，留空保留已有密钥", _mutedStyle);
                 _keyDraft = GUILayout.PasswordField(_keyDraft, '*', 1024, _fieldStyle, GUILayout.Height(26));
             }
+            else GUILayout.Label("本地测试后端", _mutedStyle);
             if (_speech != null)
             {
                 GUILayout.BeginHorizontal();
@@ -176,8 +180,46 @@ namespace DesktopPet
                 if (GUILayout.Button("试听", _buttonStyle, GUILayout.Width(60), GUILayout.Height(24)))
                     _speech.Speak("もう眠いよ…少しだけ、そばにいてくれる？");
                 if (GUILayout.Button(_speech.VoiceEnabled ? "关闭" : "开启", _buttonStyle, GUILayout.Width(60), GUILayout.Height(24)))
-                    _speech.VoiceEnabled = !_speech.VoiceEnabled;
+                {
+                    if (_runtimeSettings != null) _runtimeSettings.VoiceEnabled = !_runtimeSettings.VoiceEnabled;
+                    else _speech.VoiceEnabled = !_speech.VoiceEnabled;
+                }
                 GUILayout.EndHorizontal();
+            }
+            if (_runtimeSettings != null)
+            {
+                GUILayout.Space(4);
+                GUILayout.Label("桌宠基础设置", _mutedStyle);
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button(_runtimeSettings.AlwaysOnTop ? "置顶：开" : "置顶：关", _buttonStyle, GUILayout.Height(26)))
+                    _runtimeSettings.AlwaysOnTop = !_runtimeSettings.AlwaysOnTop;
+                if (GUILayout.Button(_runtimeSettings.QuietMode ? "安静模式：开" : "安静模式：关", _buttonStyle, GUILayout.Height(26)))
+                    _runtimeSettings.QuietMode = !_runtimeSettings.QuietMode;
+                if (GUILayout.Button(_runtimeSettings.SurfaceMovementEnabled ? "窗口移动：开" : "窗口移动：关", _buttonStyle, GUILayout.Height(26)))
+                    _runtimeSettings.SurfaceMovementEnabled = !_runtimeSettings.SurfaceMovementEnabled;
+                GUILayout.EndHorizontal();
+                GUILayout.Label("语音音量 " + Mathf.RoundToInt(_runtimeSettings.VoiceVolume * 100f) + "%", _mutedStyle);
+                float volume = GUILayout.HorizontalSlider(_runtimeSettings.VoiceVolume, 0f, 1f);
+                if (!Mathf.Approximately(volume, _runtimeSettings.VoiceVolume)) _runtimeSettings.VoiceVolume = volume;
+                GUILayout.Label("自主动作频率 " + _runtimeSettings.BehaviorFrequency.ToString("0.00") + "×", _mutedStyle);
+                float frequency = GUILayout.HorizontalSlider(_runtimeSettings.BehaviorFrequency, 0.25f, 2f);
+                if (!Mathf.Approximately(frequency, _runtimeSettings.BehaviorFrequency)) _runtimeSettings.BehaviorFrequency = frequency;
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("召回主屏", _buttonStyle, GUILayout.Height(26))) _runtimeSettings.RecallToPrimaryDisplay();
+                if (GUILayout.Button("帧率 " + _runtimeSettings.TargetFrameRate, _buttonStyle, GUILayout.Height(26)))
+                    _runtimeSettings.TargetFrameRate = _runtimeSettings.TargetFrameRate < 60 ? 60 :
+                        _runtimeSettings.TargetFrameRate < 90 ? 90 : 30;
+                GUILayout.EndHorizontal();
+                var behavior = FindObjectOfType<PetBehaviorDirector>();
+                if (behavior != null)
+                {
+                    GUILayout.BeginHorizontal();
+                    if (GUILayout.Button(behavior.ReviewMode ? "动作巡检：开" : "动作巡检：关",
+                        _buttonStyle, GUILayout.Height(26))) behavior.SetReviewMode(!behavior.ReviewMode);
+                    GUILayout.Label(behavior.IsPlayingScheduledAction ?
+                        "当前：" + behavior.CurrentActionId : "当前：等待动作", _mutedStyle, GUILayout.Height(26));
+                    GUILayout.EndHorizontal();
+                }
             }
             GUILayout.Label("模型", _mutedStyle);
             _modelDraft = GUILayout.TextField(_modelDraft, 100, _fieldStyle, GUILayout.Height(26));
@@ -188,9 +230,12 @@ namespace DesktopPet
             GUILayout.Label(_codex != null ?
                 "通过本机 Codex 使用 ChatGPT 登录态，不需要 API Key。\n对话受 ChatGPT 方案用量限制；桌宠不会调用电脑工具。" :
                 "发送内容将交给 OpenAI，连续对话使用服务端记录。\n本地不保存聊天。API 调用可能产生费用。", _mutedStyle, GUILayout.Height(34));
+            GUILayout.EndScrollView();
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("应用", _buttonStyle, GUILayout.Height(28))) ApplySettings();
+            if ((_codex != null || _openAI != null) && GUILayout.Button("应用并新对话", _buttonStyle, GUILayout.Height(28))) ApplySettings();
             if (GUILayout.Button("返回", _buttonStyle, GUILayout.Height(28))) { _settings = false; _keyDraft = ""; }
+            if (_runtimeSettings != null && GUILayout.Button("退出", _buttonStyle, GUILayout.Width(54), GUILayout.Height(28)))
+                _runtimeSettings.ExitApplication();
             GUILayout.EndHorizontal();
         }
 
@@ -255,14 +300,14 @@ namespace DesktopPet
 
         private void OpenSettings()
         {
-            if ((_openAI == null && _codex == null) || IsBusy) return;
+            if (IsBusy || (_openAI == null && _codex == null && _runtimeSettings == null)) return;
             _keyDraft = "";
             if (_codex != null)
             {
                 _modelDraft = _codex.CurrentModel;
                 _personaDraft = _codex.CurrentPersona;
             }
-            else
+            else if (_openAI != null)
             {
                 _modelDraft = _openAI.CurrentModel;
                 _personaDraft = _openAI.CurrentPersona;
@@ -274,7 +319,7 @@ namespace DesktopPet
         {
             if (_codex != null) _codex.ConfigureSession(_modelDraft, _personaDraft);
             else if (_openAI != null) _openAI.ConfigureSession(_keyDraft, _modelDraft, _personaDraft);
-            else return;
+            else { _settings = false; return; }
             _keyDraft = ""; _settings = false; NewConversation();
         }
 

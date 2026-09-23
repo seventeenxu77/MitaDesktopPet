@@ -56,6 +56,7 @@ namespace DesktopPetEditor
             var persona = CreateOrLoadPersona();
             var desktopPetPrefab = CreatePrefabVariant(sourcePrefab, controller);
             CreateScene(desktopPetPrefab, persona);
+            DesktopPetBehaviorAuthoring.Install();
             ApplyPlayerSettings();
 
             AssetDatabase.SaveAssets();
@@ -265,6 +266,12 @@ namespace DesktopPetEditor
                 instance.AddComponent<PetSleepyEyesController>();
             if (instance.GetComponent<PetClickReactionController>() == null)
                 instance.AddComponent<PetClickReactionController>();
+            if (instance.GetComponent<PetSurfaceMotionController>() == null)
+                instance.AddComponent<PetSurfaceMotionController>();
+            if (instance.GetComponent<PetBehaviorDirector>() == null)
+                instance.AddComponent<PetBehaviorDirector>();
+            if (instance.GetComponent<PetExpressionController>() == null)
+                instance.AddComponent<PetExpressionController>();
         }
 
         private static void CreateScene(GameObject desktopPetPrefab, DesktopPetPersona persona)
@@ -275,6 +282,7 @@ namespace DesktopPetEditor
             runtime.AddComponent<DesktopWindowController>();
             runtime.AddComponent<DesktopHitTestController>();
             runtime.AddComponent<DesktopWindowAnchorController>();
+            runtime.AddComponent<DesktopPetRuntimeSettings>();
 
             var pet = (GameObject)PrefabUtility.InstantiatePrefab(desktopPetPrefab, scene);
             pet.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);

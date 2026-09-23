@@ -23,6 +23,7 @@ namespace DesktopPet
         private bool _wasDragging, _applied;
         private float _animationBlink;
         private PetClickReactionController _clickReaction;
+        private PetExpressionController _expression;
 
         private void OnEnable()
         {
@@ -37,6 +38,7 @@ namespace DesktopPet
         private void ResolveReferences()
         {
             _clickReaction = GetComponent<PetClickReactionController>();
+            _expression = GetComponent<PetExpressionController>();
             _blink = -1;
             if(face == null)
             {
@@ -111,7 +113,8 @@ namespace DesktopPet
                 }
             }
             _animationBlink = face.GetBlendShapeWeight(_blink);
-            float opening = _clickReaction != null ? _clickReaction.BlendEyeOpening(_opening) : _opening;
+            float opening = _expression != null ? _expression.BlendEyeOpening(_opening) : _opening;
+            opening = _clickReaction != null ? _clickReaction.BlendEyeOpening(opening) : opening;
             face.SetBlendShapeWeight(_blink,100f*(1-Mathf.Clamp01(opening)));
             _applied = true;
         }

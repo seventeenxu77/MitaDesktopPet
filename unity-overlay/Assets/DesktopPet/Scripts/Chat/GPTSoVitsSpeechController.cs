@@ -14,7 +14,7 @@ namespace DesktopPet
         [Header("GPT-SoVITS")]
         [SerializeField] private bool voiceEnabled = true;
         [SerializeField] private bool startServiceOnLaunch = true;
-        [SerializeField] private string repositoryPath = @"D:\GPT-SoVITS-main";
+        [SerializeField] private string repositoryPath = "";
         [SerializeField] private string pythonExecutable = "";
         [SerializeField] private string configRelativePath = "model/desktop_pet_tts.yaml";
         [SerializeField] private string endpoint = "http://127.0.0.1:9880";
@@ -37,6 +37,7 @@ namespace DesktopPet
             get => voiceEnabled;
             set
             {
+                if (voiceEnabled == value) return;
                 voiceEnabled = value;
                 if (!voiceEnabled)
                 {
@@ -50,6 +51,15 @@ namespace DesktopPet
                     StatusText = _serviceReady ? "已就绪" : "等待启动";
                     if (isActiveAndEnabled && startServiceOnLaunch) StartCoroutine(EnsureService());
                 }
+            }
+        }
+
+        public float Volume
+        {
+            get => _audioSource != null ? _audioSource.volume : 1f;
+            set
+            {
+                if (_audioSource != null) _audioSource.volume = Mathf.Clamp01(value);
             }
         }
 
@@ -239,7 +249,15 @@ namespace DesktopPet
         private string ResolveRepositoryPath()
         {
             var configured = Environment.GetEnvironmentVariable("GPT_SOVITS_HOME");
-            return Path.GetFullPath(string.IsNullOrWhiteSpace(configured) ? repositoryPath : configured);
+            if (!string.IsNullOrWhiteSpace(configured)) return Path.GetFullPath(configured);
+            if (!string.IsNullOrWhiteSpace(repositoryPath)) return Path.GetFullPath(repositoryPath);
+
+            var bundledPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "GPT-SoVITS"));
+#if UNITY_EDITOR
+            var developmentPath = Path.GetFullPath(Path.Combine(Application.dataPath, "../../../../GPT-SoVITS-main"));
+            if (Directory.Exists(developmentPath)) return developmentPath;
+#endif
+            return bundledPath;
         }
 
         private string ResolvePythonExecutable()

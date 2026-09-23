@@ -674,6 +674,7 @@ GameObject:
   - component: {fileID: 927924458}
   - component: {fileID: 927924457}
   - component: {fileID: 927924456}
+  - component: {fileID: 927924462}
   m_Layer: 0
   m_Name: DesktopPetRuntime
   m_TagString: Untagged
@@ -782,6 +783,18 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 1
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &927924462
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 927924455}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1a8ddca9cb0c4f508805839c859b1948, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
 --- !u!1 &1014578556
 GameObject:
   m_ObjectHideFlags: 0

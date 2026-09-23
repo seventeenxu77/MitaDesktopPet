@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4f69212e3b38429aab5f633c86a6ff4e, type: 3}
+  m_Name: FreeStandSleep
+  m_EditorClassIdentifier: 
+  actionId: StandSleep
+  location: 1
+  weight: 2.2
+  cooldownSeconds: 42
+  minimumIdleSeconds: 14
+  allowedInQuietMode: 0
+  entryState: StandSleepEnter
+  loopState: StandSleepLoop
+  exitState: StandSleepExit
+  entrySeconds: 1.633
+  loopSeconds: {x: 8, y: 15}
+  exitSeconds: 7.967
+  crossFadeSeconds: 0.2
+  movesAlongSurface: 0
+  surfaceSpeedPixelsPerSecond: 0
+  requiresSurfaceEdge: 0
+  surfaceEdgeMarginPixels: 0
